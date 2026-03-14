@@ -206,7 +206,7 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     import time as _time
                     genai.configure(api_key=gemini_key)
                     last_err = None
-                    for mname in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]:
+                    for mname in ["gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-2.0-flash"]:
                         try:
                             gmodel = genai.GenerativeModel(mname)
                             resp = gmodel.generate_content(llm_prompt)
@@ -214,18 +214,30 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                             break
                         except Exception as e:
                             last_err = e
+                            err_str = str(e)
+                            # Stop immediately for invalid/expired API key errors
+                            if "API_KEY_INVALID" in err_str or "API key expired" in err_str or "API key not valid" in err_str:
+                                break
                             _time.sleep(2)
                             continue
                     
                     if not response_text and last_err:
-                        st.caption(f"⚠️ Gemini Quota Exceeded or Failed: {last_err}")
+                        err_str = str(last_err)
+                        if "API_KEY_INVALID" in err_str or "API key expired" in err_str or "API key not valid" in err_str:
+                            st.caption("⚠️ Gemini API key is invalid or expired. Please set a valid key: `export GEMINI_API_KEY='your-key'` (get one free at https://aistudio.google.com/apikey)")
+                        else:
+                            st.caption(f"⚠️ Gemini failed: {last_err}")
                 except Exception as e:
                     st.caption(f"⚠️ Gemini Setup failed: {e}")
 
         # Fallback: raw context
         if not response_text:
+            if not openai_key and not gemini_key:
+                fallback_reason = "No LLM API key configured. Set `OPENAI_API_KEY` or `GEMINI_API_KEY` environment variable."
+            else:
+                fallback_reason = "LLM generation failed (API key may be invalid/expired or quota exceeded). Check your API key configuration."
             response_text = (
-                "⚠️ *LLM Quota Exceeded (or No API key). Falling back to pure Endee Vector Search results:*\n\n"
+                f"⚠️ *{fallback_reason} Falling back to pure Endee Vector Search results:*\n\n"
                 "**Raw retrieved context from Endee:**\n\n"
                 + "\n\n---\n\n".join(contexts)
             )

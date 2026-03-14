@@ -83,6 +83,9 @@ def generate_with_gemini(prompt: str, api_key: str) -> str:
             except Exception as e:
                 last_error = e
                 err_str = str(e)
+                # Stop immediately for invalid/expired API key errors
+                if "API_KEY_INVALID" in err_str or "API key expired" in err_str or "API key not valid" in err_str:
+                    raise
                 if "429" in err_str and attempt == 0:
                     _time.sleep(10)  # wait before retry on rate limit
                 elif "404" in err_str:
@@ -114,7 +117,11 @@ def generate_answer(question: str, contexts: list[str]) -> str:
         try:
             return generate_with_gemini(prompt, gemini_key)
         except Exception as e:
-            print(f"  ⚠  Gemini failed: {e}")
+            err_str = str(e)
+            if "API_KEY_INVALID" in err_str or "API key expired" in err_str or "API key not valid" in err_str:
+                print(f"  ⚠  Gemini API key is invalid or expired. Please renew: https://aistudio.google.com/apikey")
+            else:
+                print(f"  ⚠  Gemini failed: {e}")
 
     return None
 
