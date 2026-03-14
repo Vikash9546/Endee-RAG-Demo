@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  endee:
+    image: endeeio/endee-server:latest
+    container_name: endee_server
+    ports:
+      - "8080:8080"
+    ulimits:
+      nofile:
+        soft: 100000
+        hard: 100000
+    volumes:
+      - endee_data:/data
+    restart: unless-stopped
+    # environment:
+    #   - NDD_AUTH_TOKEN=your_token_here
+
+volumes:
+  endee_data:

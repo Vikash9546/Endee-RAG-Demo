@@ -1,0 +1,10 @@
+# Environments
+.venv/
+venv/
+__pycache__/
+
+# Endee Data
+endee_data/
+
+# Mac
+.DS_Store
