@@ -11,6 +11,7 @@ import fitz  # PyMuPDF
 import streamlit as st
 from sentence_transformers import SentenceTransformer
 from endee import Endee, Precision
+from query import _is_api_key_error, GEMINI_KEY_URL
 
 # ── Page Config ─────────────────────────────────────────
 st.set_page_config(page_title="Endee AI Knowledge Base", page_icon="⚡", layout="wide")
@@ -214,17 +215,15 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                             break
                         except Exception as e:
                             last_err = e
-                            err_str = str(e)
                             # Stop immediately for invalid/expired API key errors
-                            if "API_KEY_INVALID" in err_str or "API key expired" in err_str or "API key not valid" in err_str:
+                            if _is_api_key_error(e):
                                 break
                             _time.sleep(2)
                             continue
                     
                     if not response_text and last_err:
-                        err_str = str(last_err)
-                        if "API_KEY_INVALID" in err_str or "API key expired" in err_str or "API key not valid" in err_str:
-                            st.caption("⚠️ Gemini API key is invalid or expired. Please set a valid key: `export GEMINI_API_KEY='your-key'` (get one free at https://aistudio.google.com/apikey)")
+                        if _is_api_key_error(last_err):
+                            st.caption(f"⚠️ Gemini API key is invalid or expired. Please set a valid key: `export GEMINI_API_KEY='your-key'` (get one free at {GEMINI_KEY_URL})")
                         else:
                             st.caption(f"⚠️ Gemini failed: {last_err}")
                 except Exception as e:

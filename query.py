@@ -17,6 +17,15 @@ from sentence_transformers import SentenceTransformer
 from endee import Endee
 
 INDEX_NAME = "knowledge_base"
+GEMINI_KEY_URL = "https://aistudio.google.com/apikey"
+
+_API_KEY_ERROR_MARKERS = ["API_KEY_INVALID", "API key expired", "API key not valid"]
+
+
+def _is_api_key_error(error: Exception) -> bool:
+    """Check if an exception indicates an invalid or expired API key."""
+    err_str = str(error)
+    return any(marker in err_str for marker in _API_KEY_ERROR_MARKERS)
 
 
 # ── Core Retrieval Function ─────────────────────────────
@@ -82,9 +91,8 @@ def generate_with_gemini(prompt: str, api_key: str) -> str:
                 return response.text
             except Exception as e:
                 last_error = e
-                err_str = str(e)
                 # Stop immediately for invalid/expired API key errors
-                if "API_KEY_INVALID" in err_str or "API key expired" in err_str or "API key not valid" in err_str:
+                if _is_api_key_error(e):
                     raise
                 if "429" in err_str and attempt == 0:
                     _time.sleep(10)  # wait before retry on rate limit
@@ -117,9 +125,8 @@ def generate_answer(question: str, contexts: list[str]) -> str:
         try:
             return generate_with_gemini(prompt, gemini_key)
         except Exception as e:
-            err_str = str(e)
-            if "API_KEY_INVALID" in err_str or "API key expired" in err_str or "API key not valid" in err_str:
-                print(f"  ⚠  Gemini API key is invalid or expired. Please renew: https://aistudio.google.com/apikey")
+            if _is_api_key_error(e):
+                print(f"  ⚠  Gemini API key is invalid or expired. Please renew: {GEMINI_KEY_URL}")
             else:
                 print(f"  ⚠  Gemini failed: {e}")
 
