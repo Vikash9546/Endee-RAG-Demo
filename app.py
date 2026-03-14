@@ -206,22 +206,27 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     import google.generativeai as genai
                     import time as _time
                     genai.configure(api_key=gemini_key)
+                    last_err = None
                     for mname in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]:
                         try:
                             gmodel = genai.GenerativeModel(mname)
                             resp = gmodel.generate_content(llm_prompt)
                             response_text = resp.text
                             break
-                        except Exception:
+                        except Exception as e:
+                            last_err = e
                             _time.sleep(2)
                             continue
+                    
+                    if not response_text and last_err:
+                        st.caption(f"⚠️ Gemini Quota Exceeded or Failed: {last_err}")
                 except Exception as e:
-                    st.caption(f"⚠️ Gemini failed: {e}")
+                    st.caption(f"⚠️ Gemini Setup failed: {e}")
 
         # Fallback: raw context
         if not response_text:
             response_text = (
-                "🔑 *No LLM API key found. Set `OPENAI_API_KEY` or `GEMINI_API_KEY` (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey))*\n\n"
+                "⚠️ *LLM Quota Exceeded (or No API key). Falling back to pure Endee Vector Search results:*\n\n"
                 "**Raw retrieved context from Endee:**\n\n"
                 + "\n\n---\n\n".join(contexts)
             )
