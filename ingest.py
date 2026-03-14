@@ -1,128 +1,143 @@
+"""
+ingest.py — AI-ML Knowledge Base Ingestion Pipeline
+=====================================================
+Reads PDFs (.pdf), Markdown (.md), and Text (.txt) files from the data/ folder,
+chunks them into ~500 character pieces, converts each chunk into a 384-dim vector
+using sentence-transformers, and upserts everything into the Endee vector database.
+"""
+
 import os
 import glob
+import fitz  # PyMuPDF
 from sentence_transformers import SentenceTransformer
 from endee import Endee, Precision
 
-# Initialize Endee Client
-# We use the correct endpoint from the documentation
-client = Endee()
+# ── Config ──────────────────────────────────────────────
+INDEX_NAME   = "knowledge_base"
+DATA_DIR     = "data/"
+CHUNK_SIZE   = 500   # characters per chunk
+CHUNK_OVERLAP = 50   # overlap between consecutive chunks
+DIMENSION    = 384   # all-MiniLM-L6-v2 output dimension
 
-INDEX_NAME = "endee_rag_demo"
+# ── Step 1: Extract Text ────────────────────────────────
 
-def chunk_text(text, chunk_size=500, overlap=50):
-    """Simple text chunker based on characters."""
+def extract_text_from_pdf(filepath):
+    """Use PyMuPDF to extract all text from a PDF file."""
+    doc = fitz.open(filepath)
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    doc.close()
+    return text
+
+def extract_text_from_file(filepath):
+    """Read plain text / markdown files."""
+    with open(filepath, "r", encoding="utf-8") as f:
+        return f.read()
+
+def load_documents(directory=DATA_DIR):
+    """Scan the data/ directory for PDFs, Markdown, and Text files."""
+    documents = []
+
+    # Collect all supported file types
+    patterns = {
+        "pdf": glob.glob(f"{directory}/**/*.pdf", recursive=True),
+        "md":  glob.glob(f"{directory}/**/*.md",  recursive=True),
+        "txt": glob.glob(f"{directory}/**/*.txt", recursive=True),
+    }
+
+    for filetype, files in patterns.items():
+        for fp in files:
+            if filetype == "pdf":
+                text = extract_text_from_pdf(fp)
+            else:
+                text = extract_text_from_file(fp)
+            documents.append({"path": fp, "text": text})
+
+    return documents
+
+# ── Step 2: Chunking ────────────────────────────────────
+
+def chunk_text(text, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    """Split text into overlapping pieces of ~500 characters each."""
     chunks = []
     start = 0
     while start < len(text):
-        end = start + chunk_size
+        end = start + size
         chunks.append(text[start:end])
-        start += (chunk_size - overlap)
+        start += size - overlap
     return chunks
 
-def get_documentsFromDirectory(directory="data/"):
-    """Reads all markdown and text files from the specified directory."""
-    documents = []
-    
-    # Read Markdown and Text files
-    files = glob.glob(f"{directory}/**/*.md", recursive=True) + glob.glob(f"{directory}/**/*.txt", recursive=True)
-    
-    print(f"Found {len(files)} files to process in {directory}.")
-    
-    for file_path in files:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-            # We use filename as title/id base
-            filename = os.path.basename(file_path)
-            
-            # Chunk the content
-            chunks = chunk_text(content)
-            
-            for i, chunk in enumerate(chunks):
-                documents.append({
-                    "id": f"{filename}-chunk-{i}",
-                    "text": chunk,
-                    "meta": {
-                        "source": file_path,
-                        "title": filename,
-                        "chunk_index": i
-                    }
-                })
-    return documents
+# ── Step 3 + 4: Embed & Store in Endee ──────────────────
 
 def main():
-    print("Loading Sentence Transformer Model (all-MiniLM-L6-v2)...")
-    model = SentenceTransformer("all-MiniLM-L6-v2") # 384 dimensions
-    
-    print("Connecting to Endee Vector DB...")
-    
-    # Recreate the Index for the Demo
-    try:
-        # Check if the index already exists. 
-        # Using list index from API endpoint we saw in getting_started
-        indexes = dict(client.list_indexes())
-        
-        # If the python client `list_indexes` returns list of dicts or just check via try except
-    except Exception as e:
-        pass
-        
-    try:
-        # Note: Depending on the specific client version it may throw exception or overwrite
-        # We will attempt to drop it if it exists to keep demo repeatable
-        try:
-             client.delete_index(INDEX_NAME)
-        except:
-             pass
-    except Exception as e:
-        print("Could not delete index (might not exist):", e)
+    # ── Load embedding model ──────────────────────────
+    print("╔══════════════════════════════════════════════════╗")
+    print("║   Endee Knowledge Base — Ingestion Pipeline     ║")
+    print("╚══════════════════════════════════════════════════╝")
 
-    print(f"Creating Endee Index: '{INDEX_NAME}' with Dimension: 384")
+    print("\n[1/4] Loading Sentence-Transformers model (all-MiniLM-L6-v2)...")
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    # ── Connect to Endee ──────────────────────────────
+    print("[2/4] Connecting to Endee Vector Database...")
+    client = Endee()
+
+    # Recreate the index for a clean demo run
+    try:
+        client.delete_index(INDEX_NAME)
+    except Exception:
+        pass
+
     client.create_index(
-        name=INDEX_NAME, 
-        dimension=384, 
-        space_type="cosine", 
-        precision=Precision.FLOAT32 # Better precision for text
+        name=INDEX_NAME,
+        dimension=DIMENSION,
+        space_type="cosine",
+        precision=Precision.FLOAT32,
     )
-    
     index = client.get_index(name=INDEX_NAME)
-    
-    documents = get_documentsFromDirectory()
-    
+
+    # ── Extract text from data/ ───────────────────────
+    print(f"[3/4] Scanning '{DATA_DIR}' for .pdf / .md / .txt files...")
+    documents = load_documents()
+
     if not documents:
-        print("No documents found in data/ directory. Please add some .txt or .md files!")
+        print("⚠  No documents found. Add files to the data/ folder and re-run.")
         return
-        
-    print(f"Chunked into {len(documents)} snippets. Generating Embeddings...")
-    
-    # Extract just text for embeddings
-    texts = [doc["text"] for doc in documents]
-    embeddings = model.encode(texts, show_progress_bar=True)
-    
-    print("Uploading to Endee Vectors...")
-    
-    # Format according to Endee `upsert` API
-    payloads = []
-    for doc, emb in zip(documents, embeddings):
-        payloads.append({
-             "id": doc["id"],
-             "vector": emb.tolist(),
-             "meta": {
-                  "text": doc["text"],
-                  "source": doc["meta"]["source"],
-                  "title": doc["meta"]["title"]
-             }
-        })
-        
-    # Upsert with a reasonable batch size
-    batch_size = 100
-    for i in range(0, len(payloads), batch_size):
-        batch = payloads[i:i+batch_size]
-        try:
-             index.upsert(batch)
-             print(f"Upserted items {i} to {i+len(batch)} into '{INDEX_NAME}'.")
-        except Exception as e:
-             print(f"Failed to upsert batch: {e}")
-             
-    print("Data Ingestion to Endee Complete! Ready for querying.")
+
+    print(f"      Found {len(documents)} file(s).")
+
+    # ── Chunk → Embed → Upsert ────────────────────────
+    all_payloads = []
+    for doc in documents:
+        filename = os.path.basename(doc["path"])
+        chunks = chunk_text(doc["text"])
+        print(f"      • {filename}: {len(chunks)} chunks")
+
+        texts = [c for c in chunks]
+        vectors = model.encode(texts, show_progress_bar=False)
+
+        for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+            all_payloads.append({
+                "id": f"{filename}::chunk-{i}",
+                "vector": vec.tolist(),
+                "meta": {
+                    "text": chunk,
+                    "source": doc["path"],
+                    "title": filename,
+                    "chunk_index": i,
+                },
+            })
+
+    print(f"\n[4/4] Upserting {len(all_payloads)} vectors into Endee index '{INDEX_NAME}'...")
+
+    BATCH = 100
+    for i in range(0, len(all_payloads), BATCH):
+        batch = all_payloads[i : i + BATCH]
+        index.upsert(batch)
+
+    print(f"\n✅  Done! {len(all_payloads)} chunks indexed. Ready for queries.")
+
 
 if __name__ == "__main__":
     main()

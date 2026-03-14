@@ -1,105 +1,138 @@
+"""
+query.py — RAG Retrieval & Generation Script
+==============================================
+1. Takes a user question
+2. Converts it into a vector using Sentence-Transformers (same model from ingest)
+3. Queries Endee to find the top 3 most similar text chunks
+4. Sends those 3 chunks + the user question to an LLM (OpenAI GPT-4o)
+"""
+
 import os
 import sys
 import argparse
 from sentence_transformers import SentenceTransformer
 from endee import Endee
-from openai import OpenAI
 
-INDEX_NAME = "endee_rag_demo"
+INDEX_NAME = "knowledge_base"
+
+
+# ── Core Retrieval Function ─────────────────────────────
+
+def retrieve(question: str, model, index, top_k: int = 3) -> list[dict]:
+    """
+    Takes a user question, converts it to a vector using the same
+    embedding model from ingest, and queries Endee for top-k matches.
+    """
+    query_vector = model.encode([question])[0].tolist()
+    results = index.query(vector=query_vector, top_k=top_k)
+    return results or []
+
+
+# ── RAG Generation Function ─────────────────────────────
+
+def generate_answer(question: str, contexts: list[str], api_key: str) -> str:
+    """
+    Sends the retrieved context chunks + user question to an LLM.
+    Returns the generated answer string.
+    """
+    from openai import OpenAI
+
+    client = OpenAI(api_key=api_key)
+
+    # Prompt follows the exact pattern:
+    # "Use the following context to answer the question: [Context]. Question: [User Query]"
+    context_block = "\n\n---\n\n".join(contexts)
+    prompt = (
+        f"Use the following context to answer the question: "
+        f"{context_block}. "
+        f"Question: {question}"
+    )
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful technical knowledge assistant. Answer strictly based on the provided context."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.4,
+        max_tokens=600,
+    )
+    return response.choices[0].message.content
+
+
+# ── Main CLI ─────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Query Endee Vector DB for Semantic Search & RAG")
-    parser.add_argument("query", type=str, help="The search query or question.")
-    parser.add_argument("--top_k", type=int, default=3, help="Number of semantic results to retrieve.")
+    parser = argparse.ArgumentParser(
+        description="Query the Endee Knowledge Base (Semantic Search + RAG)"
+    )
+    parser.add_argument("question", type=str, help="Your question in natural language")
+    parser.add_argument("--top_k", type=int, default=3, help="Number of context chunks to retrieve (default: 3)")
     args = parser.parse_args()
-    
-    query_text = args.query
-    print(f"Loading Sentence Transformer Model (all-MiniLM-L6-v2) to encode: '{query_text}'")
+
+    question = args.question
+
+    print("╔══════════════════════════════════════════════════╗")
+    print("║   Endee Knowledge Base — RAG Query Engine       ║")
+    print("╚══════════════════════════════════════════════════╝")
+
+    # ── Step 1: Load same embedding model ─────────────
+    print(f"\n[1/3] Encoding question: \"{question}\"")
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    
-    # Generate Embedding for the query
-    query_vector = model.encode([query_text])[0]
-    
-    print(f"\nSearching Endee Vector DB for top {args.top_k} results...")
-    
-    # Initialize Endee Client
+
+    # ── Step 2: Connect to Endee & Retrieve ───────────
+    print(f"[2/3] Querying Endee for top {args.top_k} matching chunks...")
     client = Endee()
-    
+
     try:
         index = client.get_index(name=INDEX_NAME)
-    except Exception as e:
-        print(f"Error accessing index '{INDEX_NAME}'. Did you run ingest.py first?")
+    except Exception:
+        print("❌  Index not found. Run `python ingest.py` first.")
         return
-        
-    # Query Endee
-    try:
-         # Depending on client version, arguments to query could be list of vectors or a single vector
-         results = index.query(vector=query_vector.tolist(), top_k=args.top_k)
-    except Exception as e:
-         print(f"Query Failed: {e}")
-         return
-         
-    # Check if results exist
+
+    results = retrieve(question, model, index, top_k=args.top_k)
+
     if not results:
-        print("No results found in Endee.")
+        print("⚠  No results found in Endee.")
         return
-        
-    print("\n" + "="*50)
-    print("🎯 ENDEE SEMANTIC SEARCH RESULTS:")
-    print("="*50)
-    
+
+    # Display semantic search results
+    print("\n" + "=" * 55)
+    print("  🔍  SEMANTIC SEARCH RESULTS (from Endee)")
+    print("=" * 55)
+
     contexts = []
-    
-    # Iterate and print top matches
     for i, match in enumerate(results):
-        # Distance metric (Cosine usually ranges between -1 and 1)
-        score = match.get("distance", "N/A")
-        
-        # Meta dictionary where we stored our content
-        meta = match.get("meta", {})
-        text_chunk = meta.get("text", "No text found in meta.")
-        source = meta.get("source", "Unknown Source")
-        
-        contexts.append(text_chunk)
-        
-        print(f"[{i+1}] Source: {source} (Score: {score})")
-        print(f"Preview: {text_chunk[:150]}...")
-        print("-" * 30)
-        
-    # Optional RAG Generation Step
-    print("\n" + "="*50)
-    print("🤖 RAG GENERATION (Retrieval-Augmented Generation)")
-    print("="*50)
-    
+        meta     = match.get("meta", {})
+        text     = meta.get("text", "")
+        source   = meta.get("source", "unknown")
+        distance = match.get("distance", 0)
+
+        contexts.append(text)
+        print(f"\n  [{i+1}] {source}  (distance: {distance:.4f})")
+        print(f"      {text[:200]}{'...' if len(text) > 200 else ''}")
+
+    # ── Step 3: Send to LLM for Generation ────────────
+    print("\n" + "=" * 55)
+    print("  🤖  RAG GENERATION (LLM + Endee Context)")
+    print("=" * 55)
+
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        print("Note: OPENAI_API_KEY environment variable not set. Skipping the LLM Generation step.")
-        print("To enable full RAG, run: export OPENAI_API_KEY='sk-your-key'")
+        print("\n  ℹ  OPENAI_API_KEY not set. Showing raw context only.")
+        print("     To enable full RAG:  export OPENAI_API_KEY='sk-...'")
         return
-        
-    client_llm = OpenAI(api_key=api_key)
-    
-    context_str = "\n\n".join(contexts)
-    
-    prompt = f"Use the following context to answer the question: {context_str}. Question: {query_text}"
-    
-    print("Generating response via OpenAI LLM with Endee Context...")
+
+    print("\n  Generating answer via GPT-4o-mini with Endee context...\n")
     try:
-         response = client_llm.chat.completions.create(
-             model="gpt-4o-mini",
-             messages=[
-                 {"role": "system", "content": "You are a helpful and intelligent knowledge assistant."},
-                 {"role": "user", "content": prompt}
-             ],
-             temperature=0.7,
-             max_tokens=500
-         )
-         
-         print("\n✨ FINAL ANSWER:")
-         print(response.choices[0].message.content)
-         
+        answer = generate_answer(question, contexts, api_key)
+        print("  ╔══════════════════════════════════════════════╗")
+        print("  ║  ✨  FINAL ANSWER                           ║")
+        print("  ╚══════════════════════════════════════════════╝")
+        print(f"\n  {answer}\n")
     except Exception as e:
-         print(f"LLM Generation Failed: {e}")
+        print(f"  ❌  LLM Generation Failed: {e}")
+
 
 if __name__ == "__main__":
     main()

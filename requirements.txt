@@ -1,7 +1,10 @@
-sentence-transformers==3.0.1
-transformers==4.44.2
+sentence-transformers
+transformers
 torch
 endee
 requests
 openai
 tqdm
+pymupdf
+streamlit
+pypdf

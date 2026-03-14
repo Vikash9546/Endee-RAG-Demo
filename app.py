@@ -1,173 +1,201 @@
+"""
+app.py — Streamlit Chatbot UI for the Endee RAG Knowledge Base
+================================================================
+Upload PDFs / Markdown / Text → ingest into Endee → ask questions → get AI answers.
+"""
+
 import os
+import time
+import tempfile
+import fitz  # PyMuPDF
 import streamlit as st
 from sentence_transformers import SentenceTransformer
 from endee import Endee, Precision
-import time
 
-# --- Page Config ---
-st.set_page_config(page_title="Endee AI Apps", page_icon="⚡", layout="wide")
+# ── Page Config ─────────────────────────────────────────
+st.set_page_config(page_title="Endee AI Knowledge Base", page_icon="⚡", layout="wide")
 
-# --- App State Cache ---
+INDEX_NAME = "knowledge_base"
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 50
+DIMENSION = 384
+
+# ── Cached Resources ────────────────────────────────────
+
 @st.cache_resource
-def load_models():
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-    return model
+def load_model():
+    return SentenceTransformer("all-MiniLM-L6-v2")
 
 @st.cache_resource
-def get_client():
+def get_endee():
     return Endee()
 
-# Initialize objects
-embedding_model = load_models()
-client = get_client()
+model = load_model()
+client = get_endee()
 
-# --- Helpers ---
-def init_index(index_name):
-    # Ensure index exists
+# ── Helper Functions ─────────────────────────────────────
+
+def chunk_text(text, size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
+    chunks, start = [], 0
+    while start < len(text):
+        chunks.append(text[start : start + size])
+        start += size - overlap
+    return chunks
+
+def extract_text(filepath, filename):
+    if filename.lower().endswith(".pdf"):
+        doc = fitz.open(filepath)
+        text = "".join(page.get_text() for page in doc)
+        doc.close()
+        return text
+    else:
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+
+def ensure_index():
     try:
-        client.get_index(name=index_name)
-    except:
+        return client.get_index(name=INDEX_NAME)
+    except Exception:
         try:
-            client.create_index(name=index_name, dimension=384, space_type="cosine", precision=Precision.FLOAT32)
-        except:
+            client.create_index(name=INDEX_NAME, dimension=DIMENSION, space_type="cosine", precision=Precision.FLOAT32)
+        except Exception:
             pass
-    return client.get_index(name=index_name)
+        return client.get_index(name=INDEX_NAME)
 
-# --- UI Sidebar Setup ---
-st.sidebar.title("Endee Use Cases")
-app_mode = st.sidebar.selectbox("Choose the application:", 
-    ["1. Semantic Search & RAG", "2. Recommendations", "3. Agentic Memory"])
+# ── Sidebar: Document Upload ─────────────────────────────
+
+st.sidebar.title("📁 Upload Documents")
+st.sidebar.markdown("Upload **PDFs**, **Markdown**, or **Text** files to build your knowledge base.")
+
+uploaded_files = st.sidebar.file_uploader(
+    "Choose files", type=["pdf", "md", "txt"], accept_multiple_files=True
+)
+
+if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
+    index = ensure_index()
+    all_payloads = []
+
+    progress = st.sidebar.progress(0, text="Processing files...")
+    for fi, uploaded in enumerate(uploaded_files):
+        # Save to temp file for PyMuPDF
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded.name)[1]) as tmp:
+            tmp.write(uploaded.read())
+            tmp_path = tmp.name
+
+        text = extract_text(tmp_path, uploaded.name)
+        chunks = chunk_text(text)
+        vectors = model.encode([c for c in chunks], show_progress_bar=False)
+
+        for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+            all_payloads.append({
+                "id": f"{uploaded.name}::chunk-{i}",
+                "vector": vec.tolist(),
+                "meta": {"text": chunk, "source": uploaded.name, "chunk_index": i},
+            })
+
+        os.unlink(tmp_path)
+        progress.progress((fi + 1) / len(uploaded_files), text=f"Processed {uploaded.name}")
+
+    if all_payloads:
+        BATCH = 100
+        for i in range(0, len(all_payloads), BATCH):
+            index.upsert(all_payloads[i : i + BATCH])
+
+        st.sidebar.success(f"✅ Ingested {len(all_payloads)} chunks from {len(uploaded_files)} file(s)!")
+    else:
+        st.sidebar.warning("No text extracted from the uploaded files.")
 
 st.sidebar.markdown("---")
-st.sidebar.info("Endee is the high-performance Vector DB powering all these models synchronously under the hood.")
+st.sidebar.caption("Powered by **Endee** Vector Database + **Sentence-Transformers**")
 
-# ==========================================================
-# APP 1: SEMANTIC SEARCH & RAG
-# ==========================================================
-if app_mode == "1. Semantic Search & RAG":
-    st.title("📚 Semantic Search & RAG Pipeline")
-    st.markdown("Query the knowledge base! *(Endee will find context based on meaning, not just exact keywords)*")
-    
-    # Check if index exists with data
-    try:
-        rag_index = client.get_index("endee_rag_demo")
-        stats = "Ready! (Data exists in index)"
-    except:
-        rag_index = None
-        stats = "Index missing or empty! Run `ingest.py` first."
-        
-    st.caption(f"Status: {stats}")
-    
-    query = st.text_input("Ask a question about the indexed knowledge:", "What is Endee built for?")
-    top_k = st.slider("Number of context chunks to retrieve:", 1, 5, 3)
-    
-    if st.button("Search Meaning in Endee"):
-        if not rag_index:
-            st.error("Please ensure the `endee_rag_demo` index exists and is populated via `python ingest.py`")
-        else:
-            with st.spinner("Embedding query and fetching nearest neighbors..."):
-                query_vec = embedding_model.encode([query])[0].tolist()
-                
-                start_time = time.time()
-                results = rag_index.query(vector=query_vec, top_k=top_k)
-                latency = (time.time() - start_time) * 1000
-                
-                st.success(f"Results retrieved in {latency:.2f} ms")
-                
-                if results:
-                    st.markdown("### 🎯 Semantic Search Context Retrieved:")
-                    for i, match in enumerate(results):
-                        meta = match.get('meta', {})
-                        score = match.get('distance', "N/A")
-                        
-                        with st.expander(f"Context {i+1} : Score {score:.4f} - {(meta.get('source', 'Unknown'))}"):
-                            st.write(meta.get('text', 'No text metadata available.'))
-                else:
-                    st.warning("No relevant results found.")
+# ── Main Area: Chatbot ───────────────────────────────────
 
-# ==========================================================
-# APP 2: RECOMMENDATIONS
-# ==========================================================
-elif app_mode == "2. Recommendations":
-    st.title("🛍️ AI Recommendations Engine")
-    st.markdown("Endee searches for similar products based on a natural language user profile description.")
-    
-    rec_index = init_index("endee_recommendations_ui")
-    
-    # Base catalog
-    PRODUCTS = [
-        {"id": "p1", "desc": "Wireless Noise Cancelling Headphones, over-ear, black", "category": "Electronics"},
-        {"id": "p2", "desc": "Running Shoes, lightweight, breathable mesh, blue", "category": "Footwear"},
-        {"id": "p3", "desc": "Yoga Mat, non-slip, eco-friendly cork, 5mm thick", "category": "Fitness"},
-        {"id": "p4", "desc": "Smartwatch with Heart Rate Monitor and GPS, waterproof", "category": "Electronics"},
-        {"id": "p5", "desc": "Organic Green Tea, loose leaf, 100g", "category": "Groceries"}
-    ]
-    
-    # Load catalog into DB (quick operation for 5 items)
-    with st.spinner("Ensuring product catalog is loaded into Endee..."):
-        payloads = [{"id": p["id"], "vector": embedding_model.encode([p["desc"]])[0].tolist(), "meta": p} for p in PRODUCTS]
-        rec_index.upsert(payloads)
-        
-    st.markdown("##### Current Vector Product Catalog:")
-    st.table(PRODUCTS)
-    
-    user_interest = st.text_input("Describe your interests (Intent-based Search):", "I want to track my heart rate while exercising outside.")
-    
-    if st.button("Get Recommendations"):
-        with st.spinner("Finding closest vectors in Endee..."):
-            user_vec = embedding_model.encode([user_interest])[0].tolist()
-            results = rec_index.query(vector=user_vec, top_k=2)
-            
-            st.markdown("### 🎯 Top Recommendations:")
-            col1, col2 = st.columns(2)
-            
+st.title("⚡ Endee AI Knowledge Base")
+st.markdown("Ask questions about your uploaded documents. Endee retrieves the most relevant context, and the LLM generates an answer.")
+
+# Chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Display past messages
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Chat input
+if prompt := st.chat_input("Ask a question about your documents..."):
+    # Display user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # ── Retrieve from Endee ──────────────────────────
+    with st.chat_message("assistant"):
+        with st.spinner("Searching Endee for relevant context..."):
+            try:
+                index = client.get_index(name=INDEX_NAME)
+            except Exception:
+                st.error("Index not found. Please upload and ingest documents first using the sidebar.")
+                st.stop()
+
+            query_vec = model.encode([prompt])[0].tolist()
+
+            start_t = time.time()
+            results = index.query(vector=query_vec, top_k=3)
+            latency = (time.time() - start_t) * 1000
+
+        if not results:
+            response_text = "I couldn't find any relevant context in the knowledge base. Please upload some documents first."
+            st.markdown(response_text)
+            st.session_state.messages.append({"role": "assistant", "content": response_text})
+            st.stop()
+
+        # Show retrieved context
+        contexts = []
+        with st.expander(f"📎 Retrieved {len(results)} chunks from Endee ({latency:.1f} ms)", expanded=False):
             for i, match in enumerate(results):
-                meta = match.get('meta', {})
-                dist = match.get('distance', 0)
-                
-                with (col1 if i % 2 == 0 else col2):
-                    st.info(f"**{meta.get('category', '')}**\n\n{meta.get('desc', '')}\n\n*Similarity: {dist:.4f}*")
+                meta = match.get("meta", {})
+                text = meta.get("text", "")
+                source = meta.get("source", "unknown")
+                dist = match.get("distance", 0)
+                contexts.append(text)
+                st.markdown(f"**[{i+1}] {source}** — distance: `{dist:.4f}`")
+                st.text(text[:300])
+                st.divider()
 
-# ==========================================================
-# APP 3: AGENTIC MEMORY
-# ==========================================================
-elif app_mode == "3. Agentic Memory":
-    st.title("🤖 Agentic Stateful Memory Example")
-    st.markdown("Agents use Endee to persistently store past thoughts/actions and recall them when a similar trigger occurs.")
-    
-    agent_index = init_index("endee_agent_memory_ui")
-    
-    st.markdown("#### Step 1: Add a memory to the Agent")
-    colA, colB = st.columns(2)
-    with colA:
-        new_thought = st.text_input("Agent's Event / Thought Context", "User asked about French.")
-    with colB:
-        new_action = st.text_input("Agent's Decided Action Routine", "set_language('fr')")
-        
-    if st.button("Log to Agent's Episodic Memory"):
-        vec = embedding_model.encode([new_thought])[0].tolist()
-        agent_index.upsert([{
-            "id": f"mem_st_{int(time.time()*1000)}",
-            "vector": vec,
-            "meta": {"thought": new_thought, "action": new_action, "ts": time.time()}
-        }])
-        st.success(f"Remembered: '{new_thought}' -> Action: '{new_action}'")
-        
-    st.markdown("---")
-    st.markdown("#### Step 2: Agent responds to new user context")
-    new_context = st.text_input("New Task Assigned to Agent:", "User is inquiring about the weather in Paris.")
-    
-    if st.button("Recall Endee Memory"):
-        vec = embedding_model.encode([new_context])[0].tolist()
-        results = agent_index.query(vector=vec, top_k=1)
-        
-        if results:
-            match = results[0]
-            meta = match.get('meta', {})
-            dist = match.get('distance', 0)
-            
-            st.markdown("### 💡 Agent Reaction")
-            st.write(f"The closest past situation the agent remembered was: **'{meta.get('thought')}'** (Distance: {dist:.4f})")
-            st.success(f"Agent will execute the pattern: `{meta.get('action')}`")
+        # ── Generate via LLM ─────────────────────────
+        api_key = os.environ.get("OPENAI_API_KEY")
+
+        if api_key:
+            with st.spinner("Generating answer with GPT-4o-mini..."):
+                try:
+                    from openai import OpenAI
+                    llm = OpenAI(api_key=api_key)
+
+                    context_block = "\n\n---\n\n".join(contexts)
+                    llm_prompt = (
+                        f"Use the following context to answer the question: "
+                        f"{context_block}. "
+                        f"Question: {prompt}"
+                    )
+
+                    resp = llm.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": "You are a helpful technical knowledge assistant. Answer strictly based on the provided context."},
+                            {"role": "user", "content": llm_prompt},
+                        ],
+                        temperature=0.4,
+                        max_tokens=600,
+                    )
+                    response_text = resp.choices[0].message.content
+                except Exception as e:
+                    response_text = f"⚠️ LLM error: {e}\n\n**Here's the raw context from Endee instead:**\n\n" + "\n\n---\n\n".join(contexts)
         else:
-            st.warning("No related past memory logged in Endee.")
+            response_text = (
+                "🔑 *OPENAI_API_KEY not set — showing raw retrieved context:*\n\n"
+                + "\n\n---\n\n".join(contexts)
+            )
+
+        st.markdown(response_text)
+        st.session_state.messages.append({"role": "assistant", "content": response_text})
