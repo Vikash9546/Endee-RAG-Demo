@@ -100,6 +100,18 @@ This runs an autonomous loop where the agent:
 
 ---
 
+### Option 4: AI Recommendation System
+A system that suggests products based on semantic similarity to a user's natural language profile.
+```bash
+python recommendation.py
+```
+This script:
+1. Embeds a mock catalog of 5 products (e.g. Yoga Mats, Running shoes, Headphones, Smartwatches).
+2. Takes a user profile like: *"I am looking for something to help me track my runs and workouts."*
+3. Queries Endee and perfectly returns the **Running Shoes** and **Smartwatch** through semantic meaning rather than keyword matching.
+
+---
+
 ### Bonus: Interactive Chatbot UI
 ```bash
 streamlit run app.py
