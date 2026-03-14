@@ -8,6 +8,8 @@ Building scalable AI search and RAG platforms requires a robust and exceptionall
 ## Features
 - **Semantic Search**: Quickly index and retrieve document chunks based on conceptual similarity using `sentence-transformers` and Endee.
 - **RAG Workflows (Retrieval Augmented Generation)**: Integrate an LLM (using the OpenAI API) to generate well-informed answers grounded linearly on the contexts retrieved from Endee.
+- **Recommendations**: Analyze user intent and interests to fetch nearest-neighbor matches of a product or movie catalog in vector space natively.
+- **Agentic AI Workflows**: Leverage Endee dynamically to simulate long-term stateful episodic memory for an autonomous AI agent to use in its execution loops.
 - **Automated Ingestion Pipeline**: Contains an ingestor that splits large Markdown or Text files into clean chunks for indexing.
 - **Local Deployment**: Includes a `docker-compose.yml` configuration to run the local Endee instance smoothly alongside the Python client.
 
@@ -56,3 +58,16 @@ python query.py "What is Endee built for?"
 ```
 
 If you configured an `OPENAI_API_KEY`, it will run full Generation (RAG) and print a coherent AI answer based on the search results. If not, it will default to outputting the pure Semantic Search retrieved context chunks.
+
+### 5. Running the Recommendation Engine
+
+See how Endee powers semantic similarity-based content matching by running the pre-loaded inventory demo:
+```bash
+python recommendation.py
+```
+
+### 6. Testing Agentic Workflows
+You can test the Agentic Memory recall pattern (which mimics a LangChain / AutoGen AI Agent using Endee vector records to pick an action based on past tasks):
+```bash
+python agent.py
+```
