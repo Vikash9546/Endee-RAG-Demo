@@ -108,11 +108,13 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Powered by **Endee** Vector Database + **Sentence-Transformers**")
+st.sidebar.title("🛠️ Features")
+app_mode = st.sidebar.radio("Choose AI Demo:", ["1. Chatbot Knowledge Base", "2. AI Recommendations Engine"])
+st.sidebar.markdown("---")
+# ── Main Area Routing ────────────────────────────────────
 
-# ── Main Area: Chatbot ───────────────────────────────────
-
-st.title("⚡ Endee AI Knowledge Base")
+if app_mode == "1. Chatbot Knowledge Base":
+    st.title("⚡ Endee AI Knowledge Base")
 st.markdown("Ask questions about your uploaded documents. Endee retrieves the most relevant context, and the LLM generates an answer.")
 
 # Chat history
@@ -226,3 +228,47 @@ if prompt := st.chat_input("Ask a question about your documents..."):
 
         st.markdown(response_text)
         st.session_state.messages.append({"role": "assistant", "content": response_text})
+
+elif app_mode == "2. AI Recommendations Engine":
+    st.title("🛍️ AI Recommendations Engine")
+    st.markdown("Endee searches for similar products based on a natural language user profile description.")
+    
+    REC_INDEX_NAME = "endee_recommendations_ui"
+    
+    try:
+        rec_index = client.get_index(name=REC_INDEX_NAME)
+    except Exception:
+        client.create_index(name=REC_INDEX_NAME, dimension=384, space_type="cosine", precision=Precision.FLOAT32)
+        rec_index = client.get_index(name=REC_INDEX_NAME)
+        
+    PRODUCTS = [
+        {"id": "p1", "desc": "Wireless Noise Cancelling Headphones, over-ear, black", "category": "Electronics"},
+        {"id": "p2", "desc": "Running Shoes, lightweight, breathable mesh, blue", "category": "Footwear"},
+        {"id": "p3", "desc": "Yoga Mat, non-slip, eco-friendly cork, 5mm thick", "category": "Fitness"},
+        {"id": "p4", "desc": "Smartwatch with Heart Rate Monitor and GPS, waterproof", "category": "Electronics"},
+        {"id": "p5", "desc": "Organic Green Tea, loose leaf, 100g", "category": "Groceries"}
+    ]
+    
+    with st.spinner("Ensuring product catalog is loaded into Endee..."):
+        payloads = [{"id": p["id"], "vector": model.encode([p["desc"]])[0].tolist(), "meta": p} for p in PRODUCTS]
+        rec_index.upsert(payloads)
+        
+    st.markdown("##### Current Vector Product Catalog:")
+    st.table(PRODUCTS)
+    
+    user_interest = st.text_input("Describe your interests (Intent-based Semantic Search):", "I want to track my heart rate while exercising outside.")
+    
+    if st.button("Get Recommendations"):
+        with st.spinner("Finding closest vectors in Endee..."):
+            user_vec = model.encode([user_interest])[0].tolist()
+            results = rec_index.query(vector=user_vec, top_k=2)
+            
+            st.markdown("### 🎯 Top Recommendations from Endee:")
+            col1, col2 = st.columns(2)
+            
+            for i, match in enumerate(results):
+                meta = match.get('meta', {})
+                dist = match.get('distance', 0)
+                
+                with (col1 if i % 2 == 0 else col2):
+                    st.info(f"**{meta.get('category', '')}**\n\n{meta.get('desc', '')}\n\n*Similarity Score: {dist:.4f}*")
