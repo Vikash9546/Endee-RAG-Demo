@@ -59,6 +59,13 @@ python query.py "What is Endee built for?"
 
 If you configured an `OPENAI_API_KEY`, it will run full Generation (RAG) and print a coherent AI answer based on the search results. If not, it will default to outputting the pure Semantic Search retrieved context chunks.
 
+### 5. Running the Interactive Streamlit UI App
+To view **all 3 use cases** (Semantic Search/RAG, Recommendations, and Agentic Memory) in a single **graphical user interface (GUI)**, run the included `app.py` script:
+```bash
+python -m pip install streamlit
+streamlit run app.py
+```
+This will open a dashboard in your browser (`http://localhost:8501`) where you can interactively test Endee's vector lookup capabilities spanning the three distinct AI capabilities!
 ### 5. Running the Recommendation Engine
 
 See how Endee powers semantic similarity-based content matching by running the pre-loaded inventory demo:
