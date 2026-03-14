@@ -106,6 +106,16 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
         st.sidebar.warning("No text extracted from the uploaded files.")
 
 st.sidebar.markdown("---")
+st.sidebar.markdown("### 🔑 API Key Settings")
+ui_gemini_key = st.sidebar.text_input(
+    "Gemini API Key (Free)", 
+    type="password", 
+    help="Paste your Gemini key so the chatbot can answer your questions. Get one free at aistudio.google.com/apikey"
+)
+if ui_gemini_key:
+    os.environ["GEMINI_API_KEY"] = ui_gemini_key
+
+st.sidebar.markdown("---")
 st.sidebar.caption("Powered by **Endee** Vector Database + **Sentence-Transformers**")
 
 # ── Main Area: Chatbot ───────────────────────────────────
