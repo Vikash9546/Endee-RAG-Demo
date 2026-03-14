@@ -177,8 +177,7 @@ if prompt := st.chat_input("Ask a question about your documents..."):
 
         response_text = None
         openai_key = os.environ.get("OPENAI_API_KEY")
-        # Hardcoding user's provided Gemini API key
-        gemini_key = "AIzaSyAKhXOgC4_3ZP_n0xJjUnHGG94dNpkTfBE"
+        gemini_key = os.environ.get("GEMINI_API_KEY")
 
         # Try OpenAI
         if openai_key and not response_text:
