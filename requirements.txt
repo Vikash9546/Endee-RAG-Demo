@@ -4,6 +4,7 @@ torch
 endee
 requests
 openai
+google-generativeai
 tqdm
 pymupdf
 streamlit

@@ -4,7 +4,10 @@ query.py — RAG Retrieval & Generation Script
 1. Takes a user question
 2. Converts it into a vector using Sentence-Transformers (same model from ingest)
 3. Queries Endee to find the top 3 most similar text chunks
-4. Sends those 3 chunks + the user question to an LLM (OpenAI GPT-4o)
+4. Sends those 3 chunks + the user question to an LLM:
+   - Primary:  OpenAI GPT-4o-mini  (if OPENAI_API_KEY is set)
+   - Fallback: Google Gemini        (if GEMINI_API_KEY is set)
+   - Both work, pick whichever key you have.
 """
 
 import os
@@ -28,26 +31,26 @@ def retrieve(question: str, model, index, top_k: int = 3) -> list[dict]:
     return results or []
 
 
-# ── RAG Generation Function ─────────────────────────────
+# ── LLM Generation Functions ────────────────────────────
 
-def generate_answer(question: str, contexts: list[str], api_key: str) -> str:
+def build_prompt(question: str, contexts: list[str]) -> str:
     """
-    Sends the retrieved context chunks + user question to an LLM.
-    Returns the generated answer string.
+    Build the RAG prompt:
+    "Use the following context to answer the question: [Context]. Question: [User Query]"
     """
-    from openai import OpenAI
-
-    client = OpenAI(api_key=api_key)
-
-    # Prompt follows the exact pattern:
-    # "Use the following context to answer the question: [Context]. Question: [User Query]"
     context_block = "\n\n---\n\n".join(contexts)
-    prompt = (
+    return (
         f"Use the following context to answer the question: "
         f"{context_block}. "
         f"Question: {question}"
     )
 
+
+def generate_with_openai(prompt: str, api_key: str) -> str:
+    """Generate answer using OpenAI GPT-4o-mini."""
+    from openai import OpenAI
+
+    client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -58,6 +61,42 @@ def generate_answer(question: str, contexts: list[str], api_key: str) -> str:
         max_tokens=600,
     )
     return response.choices[0].message.content
+
+
+def generate_with_gemini(prompt: str, api_key: str) -> str:
+    """Generate answer using Google Gemini (free tier)."""
+    import google.generativeai as genai
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    response = model.generate_content(prompt)
+    return response.text
+
+
+def generate_answer(question: str, contexts: list[str]) -> str:
+    """
+    Tries to generate an LLM answer using available API keys.
+    Priority: OpenAI → Gemini → raw context fallback.
+    """
+    prompt = build_prompt(question, contexts)
+
+    # Try OpenAI first
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            return generate_with_openai(prompt, openai_key)
+        except Exception as e:
+            print(f"  ⚠  OpenAI failed ({e}), trying Gemini...")
+
+    # Try Gemini as fallback
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        try:
+            return generate_with_gemini(prompt, gemini_key)
+        except Exception as e:
+            print(f"  ⚠  Gemini failed: {e}")
+
+    return None
 
 
 # ── Main CLI ─────────────────────────────────────────────
@@ -117,21 +156,30 @@ def main():
     print("  🤖  RAG GENERATION (LLM + Endee Context)")
     print("=" * 55)
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        print("\n  ℹ  OPENAI_API_KEY not set. Showing raw context only.")
-        print("     To enable full RAG:  export OPENAI_API_KEY='sk-...'")
+    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
+
+    if not has_openai and not has_gemini:
+        print("\n  ℹ  No LLM API key found. Set one of these:")
+        print("     export OPENAI_API_KEY='sk-...'")
+        print("     export GEMINI_API_KEY='AIza...'   (free at https://aistudio.google.com/apikey)")
         return
 
-    print("\n  Generating answer via GPT-4o-mini with Endee context...\n")
-    try:
-        answer = generate_answer(question, contexts, api_key)
+    llm_name = "OpenAI GPT-4o-mini" if has_openai else "Google Gemini"
+    print(f"\n  Generating answer via {llm_name} with Endee context...\n")
+
+    answer = generate_answer(question, contexts)
+
+    if answer:
         print("  ╔══════════════════════════════════════════════╗")
         print("  ║  ✨  FINAL ANSWER                           ║")
         print("  ╚══════════════════════════════════════════════╝")
         print(f"\n  {answer}\n")
-    except Exception as e:
-        print(f"  ❌  LLM Generation Failed: {e}")
+    else:
+        print("  ❌  All LLM providers failed. Showing raw context:")
+        for ctx in contexts:
+            print(f"  {ctx[:300]}")
+            print()
 
 
 if __name__ == "__main__":

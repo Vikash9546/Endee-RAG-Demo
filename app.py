@@ -163,22 +163,24 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 st.text(text[:300])
                 st.divider()
 
-        # ── Generate via LLM ─────────────────────────
-        api_key = os.environ.get("OPENAI_API_KEY")
+        # ── Generate via LLM (OpenAI → Gemini → raw fallback) ──
+        context_block = "\n\n---\n\n".join(contexts)
+        llm_prompt = (
+            f"Use the following context to answer the question: "
+            f"{context_block}. "
+            f"Question: {prompt}"
+        )
 
-        if api_key:
-            with st.spinner("Generating answer with GPT-4o-mini..."):
+        response_text = None
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+
+        # Try OpenAI
+        if openai_key and not response_text:
+            with st.spinner("Generating answer with OpenAI GPT-4o-mini..."):
                 try:
                     from openai import OpenAI
-                    llm = OpenAI(api_key=api_key)
-
-                    context_block = "\n\n---\n\n".join(contexts)
-                    llm_prompt = (
-                        f"Use the following context to answer the question: "
-                        f"{context_block}. "
-                        f"Question: {prompt}"
-                    )
-
+                    llm = OpenAI(api_key=openai_key)
                     resp = llm.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
@@ -190,10 +192,25 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     )
                     response_text = resp.choices[0].message.content
                 except Exception as e:
-                    response_text = f"⚠️ LLM error: {e}\n\n**Here's the raw context from Endee instead:**\n\n" + "\n\n---\n\n".join(contexts)
-        else:
+                    st.caption(f"⚠️ OpenAI failed: {e}. Trying Gemini...")
+
+        # Try Gemini (free)
+        if gemini_key and not response_text:
+            with st.spinner("Generating answer with Google Gemini..."):
+                try:
+                    import google.generativeai as genai
+                    genai.configure(api_key=gemini_key)
+                    gmodel = genai.GenerativeModel("gemini-2.0-flash")
+                    resp = gmodel.generate_content(llm_prompt)
+                    response_text = resp.text
+                except Exception as e:
+                    st.caption(f"⚠️ Gemini failed: {e}")
+
+        # Fallback: raw context
+        if not response_text:
             response_text = (
-                "🔑 *OPENAI_API_KEY not set — showing raw retrieved context:*\n\n"
+                "🔑 *No LLM API key found. Set `OPENAI_API_KEY` or `GEMINI_API_KEY` (free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey))*\n\n"
+                "**Raw retrieved context from Endee:**\n\n"
                 + "\n\n---\n\n".join(contexts)
             )
 

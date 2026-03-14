@@ -75,11 +75,16 @@ docker run -d -p 8080:8080 --name endee endeeio/endee-server:latest && python in
 
 ### 3. Query the knowledge base
 ```bash
+# Option A: Use Google Gemini (FREE — get key at https://aistudio.google.com/apikey)
+export GEMINI_API_KEY="your-gemini-key"
+python query.py "What is Endee built for?"
+
+# Option B: Use OpenAI GPT-4o-mini (paid)
 export OPENAI_API_KEY="sk-your-key-here"
 python query.py "What is Endee built for?"
 ```
 
-> **No OpenAI key?** The script still works — it will show the raw retrieved context from Endee (semantic search results) instead of the LLM-generated answer.
+> **How it works:** The script tries OpenAI first, then falls back to Gemini. If neither key is set, it still returns the raw semantic search results from Endee.
 
 ### Bonus: Interactive Chatbot UI
 ```bash
