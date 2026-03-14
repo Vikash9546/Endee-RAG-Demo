@@ -64,13 +64,33 @@ def generate_with_openai(prompt: str, api_key: str) -> str:
 
 
 def generate_with_gemini(prompt: str, api_key: str) -> str:
-    """Generate answer using Google Gemini (free tier)."""
+    """Generate answer using Google Gemini (free tier). Tries multiple models."""
     import google.generativeai as genai
+    import time as _time
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    response = model.generate_content(prompt)
-    return response.text
+
+    # Try multiple models — ordered by free tier generosity
+    models_to_try = ["gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-2.0-flash"]
+    last_error = None
+
+    for model_name in models_to_try:
+        for attempt in range(2):  # retry once per model
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(prompt)
+                return response.text
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                if "429" in err_str and attempt == 0:
+                    _time.sleep(10)  # wait before retry on rate limit
+                elif "404" in err_str:
+                    break  # model doesn't exist, skip to next
+                else:
+                    break  # other error, skip to next model
+
+    raise last_error
 
 
 def generate_answer(question: str, contexts: list[str]) -> str:

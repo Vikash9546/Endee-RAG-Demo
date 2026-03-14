@@ -194,15 +194,22 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                 except Exception as e:
                     st.caption(f"⚠️ OpenAI failed: {e}. Trying Gemini...")
 
-        # Try Gemini (free)
+        # Try Gemini (free) — tries multiple models for quota resilience
         if gemini_key and not response_text:
             with st.spinner("Generating answer with Google Gemini..."):
                 try:
                     import google.generativeai as genai
+                    import time as _time
                     genai.configure(api_key=gemini_key)
-                    gmodel = genai.GenerativeModel("gemini-2.0-flash")
-                    resp = gmodel.generate_content(llm_prompt)
-                    response_text = resp.text
+                    for mname in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]:
+                        try:
+                            gmodel = genai.GenerativeModel(mname)
+                            resp = gmodel.generate_content(llm_prompt)
+                            response_text = resp.text
+                            break
+                        except Exception:
+                            _time.sleep(2)
+                            continue
                 except Exception as e:
                     st.caption(f"⚠️ Gemini failed: {e}")
 

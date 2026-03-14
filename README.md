@@ -76,7 +76,7 @@ docker run -d -p 8080:8080 --name endee endeeio/endee-server:latest && python in
 ### 3. Query the knowledge base
 ```bash
 # Option A: Use Google Gemini (FREE — get key at https://aistudio.google.com/apikey)
-export GEMINI_API_KEY="your-gemini-key"
+export GEMINI_API_KEY="gemini_api_key"
 python query.py "What is Endee built for?"
 
 # Option B: Use OpenAI GPT-4o-mini (paid)
@@ -85,6 +85,20 @@ python query.py "What is Endee built for?"
 ```
 
 > **How it works:** The script tries OpenAI first, then falls back to Gemini. If neither key is set, it still returns the raw semantic search results from Endee.
+
+---
+
+### Option 3: "Ghost-Protocol" (Agentic AI Workflow)
+An AI agent that can "browse" its own memory to complete a multi-step task for **Automated Incident Response**.
+```bash
+python incident_agent.py
+```
+This runs an autonomous loop where the agent:
+1. Receives a server crash error.
+2. Queries Endee to see if a similar error happened before.
+3. Automatically decides whether to **Fix** it (by executing a known solution) or **Escalate** it to a human based on difficulty. 
+
+---
 
 ### Bonus: Interactive Chatbot UI
 ```bash
