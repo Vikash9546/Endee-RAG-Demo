@@ -106,14 +106,6 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
         st.sidebar.warning("No text extracted from the uploaded files.")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🔑 API Key Settings")
-ui_gemini_key = st.sidebar.text_input(
-    "Gemini API Key (Free)", 
-    type="password", 
-    help="Paste your Gemini key so the chatbot can answer your questions. Get one free at aistudio.google.com/apikey"
-)
-if ui_gemini_key:
-    os.environ["GEMINI_API_KEY"] = ui_gemini_key
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Powered by **Endee** Vector Database + **Sentence-Transformers**")
@@ -183,7 +175,8 @@ if prompt := st.chat_input("Ask a question about your documents..."):
 
         response_text = None
         openai_key = os.environ.get("OPENAI_API_KEY")
-        gemini_key = os.environ.get("GEMINI_API_KEY")
+        # Hardcoding user's provided Gemini API key
+        gemini_key = "AIzaSyAKhXOgC4_3ZP_n0xJjUnHGG94dNpkTfBE"
 
         # Try OpenAI
         if openai_key and not response_text:
