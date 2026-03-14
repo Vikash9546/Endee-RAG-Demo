@@ -20,52 +20,54 @@ Building scalable AI search and RAG platforms requires a robust and exceptionall
 4. **Retrieval**: User queries are embedded via the exact same model and sent to the `Endee.query()` API for K-nearest neighbor search.
 5. **Generation**: The top `K` results are concatenated and injected into an LLM prompt as context to generate intelligent, well-informed answers.
 
+### Architecture Flow
+
+```mermaid
+graph TD
+    A[Raw Documents (.txt/.md)] --> B[Python Chunking Script]
+    B --> C[Sentence-Transformers Model]
+    C -->|Embeddings| D[(Endee Vector Database)]
+    
+    E[User Question] --> F[Sentence-Transformers Model]
+    F -->|Query Embedding| D
+    D -->|Top 3 Matches Context| G[Prompt Assembly]
+    E --> G
+    
+    G --> H[OpenAI / Local LLM generation]
+    H --> I[Final User Answer]
+```
+
 ---
 
-## Setup and Execution Instructions
+## Quick Start (Run it in 3 commands!)
 
-### 1. Start the Endee Vector Database
-Before running the code, start **Endee** using the bundled `docker-compose.yml`:
+**1. Create your environment & install dependencies:**
 ```bash
-docker-compose up -d
-```
-The Endee server will listen on `http://localhost:8080`.
-
-### 2. Environment Setup
-Install the necessary python dependencies using `pip`:
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 ```
 
-*(Optional)* If you want to use the Generation capabilities (RAG), export your OpenAI API Key:
+**2. Start Endee in the background and ingest the context data:**
 ```bash
-export OPENAI_API_KEY="sk-your-openai-key-here"
+docker-compose up -d && python ingest.py
 ```
 
-### 3. Ingest Documents into Endee
-Add some `.txt` or `.md` files to the `data/` directory (you can copy your project files over to index them!). Run the script to ingest them into Endee:
+**3. Test the RAG Pipeline by querying for information:**
+*(Make sure to set your `OPENAI_API_KEY` to run the ChatGPT Generation capability!)*
 ```bash
-python ingest.py
-```
-This script will parse your documents, generate embeddings, and store them inside the `endee_rag` index in your running Endee instance.
-
-### 4. Query the System (Semantic Search + RAG)
-Run the application script to chat with your knowledge base:
-```bash
+export OPENAI_API_KEY="sk-your-openai-key"
 python query.py "What is Endee built for?"
 ```
 
-If you configured an `OPENAI_API_KEY`, it will run full Generation (RAG) and print a coherent AI answer based on the search results. If not, it will default to outputting the pure Semantic Search retrieved context chunks.
+*(You can also run `streamlit run app.py` to open the fully fledged Graphical Interface that holds all AI demos!)*
 
-### 5. Running the Interactive Streamlit UI App
+### 4. Running the Interactive Streamlit UI App
 To view **all 3 use cases** (Semantic Search/RAG, Recommendations, and Agentic Memory) in a single **graphical user interface (GUI)**, run the included `app.py` script:
 ```bash
 python -m pip install streamlit
 streamlit run app.py
 ```
 This will open a dashboard in your browser (`http://localhost:8501`) where you can interactively test Endee's vector lookup capabilities spanning the three distinct AI capabilities!
+
 ### 5. Running the Recommendation Engine
 
 See how Endee powers semantic similarity-based content matching by running the pre-loaded inventory demo:

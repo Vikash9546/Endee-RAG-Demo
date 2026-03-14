@@ -81,16 +81,7 @@ def main():
     
     context_str = "\n\n".join(contexts)
     
-    prompt = f"""You are an advanced AI assistant powered by Endee Vector Database.
-Use the following retrieved context to answer the user's question accurately.
-If the context does not contain the answer, say "I don't know based on the provided documents."
-
-Retrieved Context:
-{context_str}
-
-User Question: {query_text}
-
-Answer:"""
+    prompt = f"Use the following context to answer the question: {context_str}. Question: {query_text}"
     
     print("Generating response via OpenAI LLM with Endee Context...")
     try:
