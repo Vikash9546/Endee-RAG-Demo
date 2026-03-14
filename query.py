@@ -94,6 +94,7 @@ def generate_with_gemini(prompt: str, api_key: str) -> str:
                 # Stop immediately for invalid/expired API key errors
                 if _is_api_key_error(e):
                     raise
+                err_str = str(e)
                 if "429" in err_str and attempt == 0:
                     _time.sleep(10)  # wait before retry on rate limit
                 elif "404" in err_str:
