@@ -12,6 +12,7 @@ import streamlit as st
 from sentence_transformers import SentenceTransformer
 from endee import Endee, Precision
 from dotenv import load_dotenv
+import shutil
 import cv2
 from PIL import Image
 import requests
