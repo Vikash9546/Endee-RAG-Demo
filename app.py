@@ -63,6 +63,39 @@ def extract_text(filepath, filename):
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
 
+def vision_ocr_pdf(filepath):
+    """Uses Gemini Vision to read handwritten notes from a PDF."""
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_key:
+        return ""
+    
+    from google import genai
+    import PIL.Image
+    import io
+    
+    gen_client = genai.Client(api_key=gemini_key)
+    doc = fitz.open(filepath)
+    extracted_text = []
+    
+    for page in doc:
+        # Convert PDF page to Image
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) # Higher res for handwriting
+        img_data = pix.tobytes("png")
+        img = PIL.Image.open(io.BytesIO(img_data))
+        
+        try:
+            prompt = "Please extract all text from this handwritten note or scanned document. Return ONLY the extracted text, no labels."
+            response = gen_client.models.generate_content(
+                model="gemini-3-flash-preview",
+                contents=[prompt, img]
+            )
+            extracted_text.append(response.text)
+        except:
+            continue
+            
+    doc.close()
+    return "\n\n".join(extracted_text)
+
 def ensure_index():
     try:
         return client.get_index(name=INDEX_NAME)
@@ -96,21 +129,31 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
             tmp_path = tmp.name
 
         if ext in [".pdf", ".md", ".txt"]:
-            # Text Processing
+            # 1. Try standard digital extraction
             text = extract_text(tmp_path, uploaded.name)
-            chunks = chunk_text(text)
-            vectors = model.encode([c for c in chunks], show_progress_bar=False)
-            payloads = []
-            for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
-                payloads.append({
-                    "id": f"text::{uploaded.name}::{i}",
-                    "vector": vec.tolist(),
-                    "meta": {"text": chunk, "source": uploaded.name, "type": "text"},
-                })
-            if payloads:
+            
+            # 2. If empty (Handwritten/Scanned), use Visual OCR Fallback
+            if not text.strip() and uploaded.name.lower().endswith(".pdf"):
+                with st.sidebar.status(f"🔍 '{uploaded.name}' looks handwritten. Running AI Vision OCR...") as status:
+                    text = vision_ocr_pdf(tmp_path)
+                    if text.strip():
+                        status.update(label="✅ Handwriting Extracted!", state="complete")
+                    else:
+                        status.update(label="❌ Vision OCR failed.", state="error")
+            
+            if text.strip():
+                chunks = chunk_text(text)
+                vectors = model.encode([c for c in chunks], show_progress_bar=False)
+                payloads = []
+                for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+                    payloads.append({
+                        "id": f"text::{uploaded.name}::{i}",
+                        "vector": vec.tolist(),
+                        "meta": {"text": chunk, "source": uploaded.name, "type": "text"},
+                    })
                 index.upsert(payloads)
             else:
-                st.sidebar.warning(f"No text extracted from {uploaded.name}. Skipping.")
+                st.sidebar.warning(f"⚠️ Could not read any text from {uploaded.name} (even with AI Vision).")
 
         os.unlink(tmp_path)
         progress.progress((fi + 1) / len(uploaded_files), text=f"Processed {uploaded.name}")
