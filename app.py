@@ -215,103 +215,139 @@ if st.sidebar.button("🚀 Seed All Catalogs (Recs & Visual)"):
     st.sidebar.success("✅ Catalogs Synchronized!")
 
 st.sidebar.markdown("---")
+st.sidebar.title("🎮 App Navigation")
+app_mode = st.sidebar.radio("Select AI Feature:", [
+    "🌐 Unified AI Search Dashboard",
+    "🤖 AI Knowledge Assistant",
+    "🛍️ Product Recommendations",
+    "📸 Multi-Media Model"
+])
+st.sidebar.markdown("---")
+
 # ── Main Area Routing ────────────────────────────────────
 
-st.title("🌐 Unified AI Search Dashboard")
-st.markdown("One search powered by **Endee Vector DB**. Retrieves Knowledge, Products, and Visuals simultaneously.")
+if app_mode == "🌐 Unified AI Search Dashboard":
+    st.title("🌐 Unified AI Search Dashboard")
+    st.markdown("One search powered by **Endee Vector DB**. Retrieves Knowledge, Products, and Visuals simultaneously.")
+elif app_mode == "🤖 AI Knowledge Assistant":
+    st.title("🤖 AI Knowledge Assistant")
+    st.markdown("Ask deep questions about your uploaded documents. Endee retrieves context for accurate LLM answers.")
+elif app_mode == "🛍️ Product Recommendations":
+    st.title("🛍️ Product Recommendations")
+    st.markdown("Semantic intent-based search for products in the catalog.")
+elif app_mode == "📸 Multi-Media Model":
+    st.title("📸 Multi-Media Model")
+    st.markdown("Visual search across images and videos using CLIP and Endee.")
+
 
 # Unified search input
-if prompt := st.chat_input("Ask a question, find a product, or search visually..."):
-    # ── 1. RAG Retrieve ──────────────────────────
-    st.subheader("🤖 AI Knowledge Assistant")
-    with st.spinner("Searching Knowledge Base..."):
-        try:
-            kb_index = client.get_index(name=INDEX_NAME)
-            query_vec = model.encode([prompt])[0].tolist()
-            kb_results = kb_index.query(vector=query_vec, top_k=3)
-        except: kb_results = []
+if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
+    
+    # 📝 1. AI Knowledge Assistant Section
+    if app_mode in ["🌐 Unified AI Search Dashboard", "🤖 AI Knowledge Assistant"]:
+        if app_mode == "🌐 Unified AI Search Dashboard": st.subheader("🤖 AI Knowledge Assistant")
+        with st.spinner("Searching Knowledge Base..."):
+            try:
+                kb_index = client.get_index(name=INDEX_NAME)
+                query_vec = model.encode([prompt])[0].tolist()
+                kb_results = kb_index.query(vector=query_vec, top_k=3)
+            except: kb_results = []
 
-    if kb_results:
-        contexts = [m.get("meta", {}).get("text", "") for m in kb_results]
-        context_block = "\n\n---\n\n".join(contexts)
-        
-        gemini_key = os.environ.get("GEMINI_API_KEY")
-        response_text = None
-        llm_prompt = f"Answer based on context: {context_block}\nQuestion: {prompt}"
-        if gemini_key and not response_text:
-            with st.spinner("Generating answer with Google Gemini..."):
+        if kb_results:
+            contexts = [m.get("meta", {}).get("text", "") for m in kb_results]
+            context_block = "\n\n---\n\n".join(contexts)
+            
+            gemini_key = os.environ.get("GEMINI_API_KEY")
+            response_text = None
+            llm_prompt = f"Answer based on context: {context_block}\nQuestion: {prompt}"
+            if gemini_key:
                 try:
                     from google import genai
                     gen_client = genai.Client(api_key=gemini_key)
                     # Use gemini-3-flash-preview as requested by user
                     try:
-                        resp = gen_client.models.generate_content(
-                            model="gemini-3-flash-preview", 
-                            contents=llm_prompt
-                        )
+                        resp = gen_client.models.generate_content(model="gemini-3-flash-preview", contents=llm_prompt)
                         response_text = resp.text
-                    except Exception as e1:
-                        # Fallback to 2.0 if 3-flash-preview is not available
+                    except:
                         try:
-                            resp = gen_client.models.generate_content(
-                                model="gemini-2.0-flash", 
-                                contents=llm_prompt
-                            )
+                            resp = gen_client.models.generate_content(model="gemini-2.0-flash", contents=llm_prompt)
                             response_text = resp.text
-                        except Exception as e2:
-                            st.caption(f"⚠️ Gemini Failed: {e2}")
-                except Exception as e:
-                    st.caption(f"⚠️ Gemini Setup failed: {e}")
-        
-        if not response_text:
-            response_text = "⚠️ *Quota hit. Showing raw Endee Context:*\n\n" + contexts[0][:500] + "..."
-        st.info(response_text)
-    else:
-        st.caption("No knowledge base results found.")
+                        except: pass
+                except: pass
+            
+            if not response_text:
+                response_text = "⚠️ *Quota hit. Showing raw Endee Context:*\n\n" + contexts[0][:500] + "..."
+            st.info(response_text)
+        else:
+            st.caption("No knowledge base results found.")
 
-    st.divider()
+    if app_mode == "🌐 Unified AI Search Dashboard": st.divider()
 
-    # ── 2. Recommendation & Visual Results ────────
-    col_rec, col_vis = st.columns(2)
+    # 🛍️ 2. Product Recommendations Section
+    if app_mode in ["🌐 Unified AI Search Dashboard", "🛍️ Product Recommendations"]:
+        if app_mode == "🌐 Unified AI Search Dashboard":
+            col_rec, col_vis = st.columns(2)
+        else:
+            col_rec = st.container()
 
-    with col_rec:
-        st.subheader("🛍️ Product Recommendations")
-        with st.spinner("Finding similar products..."):
-            try:
-                rec_i = client.get_index(name="endee_recommendations_ui")
-                rec_results = rec_i.query(vector=model.encode([prompt])[0].tolist(), top_k=2)
-                for m in rec_results:
-                    meta = m.get('meta', {})
-                    st.success(f"**{meta.get('category')}**\n\n{meta.get('desc')}")
-            except:
-                st.caption("No recommendations found. Use Sidebar to seed catalog.")
+        with col_rec:
+            if app_mode == "🌐 Unified AI Search Dashboard": st.subheader("🛍️ Product Recommendations")
+            with st.spinner("Finding similar products..."):
+                try:
+                    rec_i = client.get_index(name="endee_recommendations_ui")
+                    rec_results = rec_i.query(vector=model.encode([prompt])[0].tolist(), top_k=2 if app_mode == "🌐 Unified AI Search Dashboard" else 4)
+                    
+                    if not rec_results: st.caption("No product matches.")
+                    
+                    # Responsive grid for recommendations
+                    cols = st.columns(2) if app_mode != "🌐 Unified AI Search Dashboard" else [st.container()]
+                    for i, m in enumerate(rec_results):
+                        meta = m.get('meta', {})
+                        with (cols[i % 2] if app_mode != "🌐 Unified AI Search Dashboard" else st.container()):
+                            st.success(f"**{meta.get('category')}**\n\n{meta.get('desc')}")
+                except:
+                    st.caption("No recommendations found. Use Sidebar to seed catalog.")
 
-    with col_vis:
-        st.subheader("📸 Visual Search")
-        with st.spinner("Fetching visual matches..."):
-            try:
-                # 1. Search seed catalog
-                mm_i = client.get_index(name="endee_multimodal_ui")
-                q_vec = clip_m.encode([prompt])[0].tolist()
-                mm_results = mm_i.query(vector=q_vec, top_k=1)
-                
-                # 2. Search user uploads
-                user_mm_i = client.get_index(name="multimodal_kb")
-                user_mm_results = user_mm_i.query(vector=q_vec, top_k=1)
-                
-                # Show results
-                if user_mm_results:
-                    meta = user_mm_results[0].get('meta', {})
-                    src = meta.get('source')
-                    path = f"uploads/{src}"
-                    if os.path.exists(path):
-                        if meta.get('type') == 'video':
-                            st.video(path)
-                        else:
-                            st.image(path, caption=f"User Upload: {src}")
+    # 📸 3. Multi-Media Model Section
+    if app_mode in ["🌐 Unified AI Search Dashboard", "📸 Multi-Media Model"]:
+        if app_mode == "🌐 Unified AI Search Dashboard":
+            # We already have col_vis from the st.columns(2) above
+            pass
+        else:
+            col_vis = st.container()
 
-                for m in mm_results:
-                    meta = m.get('meta', {})
-                    st.image(meta.get('url'), caption=f"Catalog: {meta.get('desc')}")
-            except:
-                st.caption("No visual matches found.")
+        with col_vis:
+            if app_mode == "🌐 Unified AI Search Dashboard": st.subheader("📸 Visual Search")
+            with st.spinner("Fetching visual matches..."):
+                try:
+                    q_vec = clip_m.encode([prompt])[0].tolist()
+                    
+                    # 1. Search seed catalog
+                    mm_i = client.get_index(name="endee_multimodal_ui")
+                    mm_results = mm_i.query(vector=q_vec, top_k=1)
+                    
+                    # 2. Search user uploads
+                    user_mm_i = client.get_index(name="multimodal_kb")
+                    user_mm_results = user_mm_i.query(vector=q_vec, top_k=2)
+                    
+                    # Show user uploads first if any
+                    for match in user_mm_results:
+                        meta = match.get('meta', {})
+                        src = meta.get('source')
+                        path = f"uploads/{src}"
+                        if os.path.exists(path):
+                            if meta.get('type') == 'video':
+                                st.video(path)
+                            else:
+                                st.image(path, caption=f"User Upload: {src}")
+
+                    # Show catalog images
+                    for m in mm_results:
+                        meta = m.get('meta', {})
+                        st.image(meta.get('url'), caption=f"Catalog: {meta.get('desc')}")
+                        
+                    if not mm_results and not user_mm_results:
+                        st.caption("No visual matches found.")
+                except:
+                    st.caption("No visual search results.")
+
