@@ -64,7 +64,7 @@ def extract_text(filepath, filename):
             return f.read()
 
 def vision_ocr_pdf(filepath):
-    """Uses Gemini Vision to read handwritten notes from a PDF."""
+    """Uses Gemini Vision to read handwritten notes from a PDF using parallel processing for speed."""
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if not gemini_key:
         return ""
@@ -72,29 +72,34 @@ def vision_ocr_pdf(filepath):
     from google import genai
     import PIL.Image
     import io
+    from concurrent.futures import ThreadPoolExecutor
     
     gen_client = genai.Client(api_key=gemini_key)
     doc = fitz.open(filepath)
-    extracted_text = []
     
-    for page in doc:
-        # Convert PDF page to Image
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2)) # Higher res for handwriting
+    def process_page(page_num):
+        page = doc[page_num]
+        # Optimized resolution (1.5x is usually enough for Gemini)
+        pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
         img_data = pix.tobytes("png")
         img = PIL.Image.open(io.BytesIO(img_data))
         
         try:
-            prompt = "Please extract all text from this handwritten note or scanned document. Return ONLY the extracted text, no labels."
+            prompt = "Extract all text from this handwritten note. Return ONLY raw text."
             response = gen_client.models.generate_content(
                 model="gemini-3-flash-preview",
                 contents=[prompt, img]
             )
-            extracted_text.append(response.text)
+            return response.text
         except:
-            continue
+            return ""
+
+    # Process pages in parallel
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(process_page, range(len(doc))))
             
     doc.close()
-    return "\n\n".join(extracted_text)
+    return "\n\n".join([r for r in results if r])
 
 def ensure_index():
     try:
