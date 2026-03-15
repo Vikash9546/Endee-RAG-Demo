@@ -246,14 +246,19 @@ elif app_mode == "🕵️ Agentic AI Memory":
     except: pass
     agent_i = client.get_index(name=AGENT_INDEX)
 
-    if st.button("🔧 Seed Agent Memory (One-time)"):
+    if st.button("🔧 Seed Agent Memory (Clean Slate)"):
+        try: client.delete_index(AGENT_INDEX)
+        except: pass
+        client.create_index(name=AGENT_INDEX, dimension=384, space_type="cosine", precision=Precision.FLOAT32)
+        agent_i = client.get_index(name=AGENT_INDEX)
+        
         past_incidents = [
-            {"error": "Postgres Connection Refused 5432", "sol": "Restarted pg_ctl and increased max_connections.", "level": "Easy"},
-            {"error": "OOMKilled: Pod memory limit", "sol": "Memory leak detected. Requires senior SRE profile.", "level": "Hard"},
-            {"error": "AWS S3 Access Denied 403", "sol": "IAM role restored via Terraform.", "level": "Easy"}
+            {"error_str": "Postgres Connection Refused 5432", "solution": "Restarted pg_ctl and increased max_connections.", "difficulty": "Easy"},
+            {"error_str": "OOMKilled: Pod memory limit", "solution": "Memory leak detected. Requires senior SRE profile.", "difficulty": "Hard"},
+            {"error_str": "AWS S3 Access Denied 403", "solution": "IAM role restored via Terraform.", "difficulty": "Easy"}
         ]
-        agent_i.upsert([{"id": f"inc_{i}", "vector": model.encode([p["error"]])[0].tolist(), "meta": p} for i, p in enumerate(past_incidents)])
-        st.success("Agent Memory Seeded!")
+        agent_i.upsert([{"id": f"inc_{i}", "vector": model.encode([p["error_str"]])[0].tolist(), "meta": p} for i, p in enumerate(past_incidents)])
+        st.success("Agent Memory Reset & Seeded!")
 
     incident = st.text_input("🚨 Enter a simulated server error signature:", "Database is crashing. Connection timed out on port 5432")
     
@@ -269,15 +274,19 @@ elif app_mode == "🕵️ Agentic AI Memory":
 
         if results and results[0].get('distance', 1.0) <= 0.45:
             match = results[0].get('meta', {})
-            status_box.success(f"✅ **Step 2: Memory Match Found!** Similar issue found: *'{match.get('error')}'*")
+            err_name = match.get('error_str', 'Unknown Signature')
+            sol_name = match.get('solution', 'No solution steps found')
+            diff_level = match.get('difficulty', 'Hard')
+
+            status_box.success(f"✅ **Step 2: Memory Match Found!** Similar issue found: *'{err_name}'*")
             time.sleep(1)
             
             st.markdown("### 🤖 Agent Decision Engine")
-            if match.get('level') == "Easy":
+            if diff_level == "Easy":
                 st.balloons()
-                st.success(f"**DECISION: AUTO-FIX 🛠️**\n\nI remember this! Executing known fix: `{match.get('sol')}`")
+                st.success(f"**DECISION: AUTO-FIX 🛠️**\n\nI remember this! Executing known fix: `{sol_name}`")
             else:
-                st.warning(f"**DECISION: ESCALATE w/ CONTEXT ⚠️**\n\nI found a match, but the difficulty is 'Hard'. Escalating to Human SRE with past context: *{match.get('sol')}*")
+                st.warning(f"**DECISION: ESCALATE w/ CONTEXT ⚠️**\n\nI found a match, but the difficulty is '{diff_level}'. Escalating to Human SRE with past context: *{sol_name}*")
         else:
             status_box.error("❌ **Step 2: No Memory Match Found.** This is a novel incident.")
             st.markdown("### 🤖 Agent Decision Engine")
