@@ -27,6 +27,7 @@ INDEX_NAME = "knowledge_base"
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 DIMENSION = 384
+SIMILARITY_THRESHOLD = 0.5  # Max allowed distance for a 'relevant' match
 
 # ── Cached Resources ────────────────────────────────────
 
@@ -295,16 +296,20 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
             with st.spinner("Finding similar products..."):
                 try:
                     rec_i = client.get_index(name="endee_recommendations_ui")
-                    rec_results = rec_i.query(vector=model.encode([prompt])[0].tolist(), top_k=2 if app_mode == "🌐 Unified AI Search Dashboard" else 4)
+                    unfiltered_results = rec_i.query(vector=model.encode([prompt])[0].tolist(), top_k=2 if app_mode == "🌐 Unified AI Search Dashboard" else 4)
                     
-                    if not rec_results: st.caption("No product matches.")
+                    # Filter by threshold
+                    rec_results = [r for r in unfiltered_results if r.get('distance', 1.0) <= SIMILARITY_THRESHOLD]
                     
-                    # Responsive grid for recommendations
-                    cols = st.columns(2) if app_mode != "🌐 Unified AI Search Dashboard" else [st.container()]
-                    for i, m in enumerate(rec_results):
-                        meta = m.get('meta', {})
-                        with (cols[i % 2] if app_mode != "🌐 Unified AI Search Dashboard" else st.container()):
-                            st.success(f"**{meta.get('category')}**\n\n{meta.get('desc')}")
+                    if not rec_results: 
+                        st.warning("🔍 I have no such type exist in my database (Product)")
+                    else:
+                        # Responsive grid for recommendations
+                        cols = st.columns(2) if app_mode != "🌐 Unified AI Search Dashboard" else [st.container()]
+                        for i, m in enumerate(rec_results):
+                            meta = m.get('meta', {})
+                            with (cols[i % 2] if app_mode != "🌐 Unified AI Search Dashboard" else st.container()):
+                                st.success(f"**{meta.get('category')}**\n\n{meta.get('desc')}")
                 except:
                     st.caption("No recommendations found. Use Sidebar to seed catalog.")
 
@@ -324,30 +329,35 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
                     
                     # 1. Search seed catalog
                     mm_i = client.get_index(name="endee_multimodal_ui")
-                    mm_results = mm_i.query(vector=q_vec, top_k=1)
+                    mm_results_raw = mm_i.query(vector=q_vec, top_k=1)
+                    mm_results = [r for r in mm_results_raw if r.get('distance', 1.0) <= SIMILARITY_THRESHOLD]
                     
                     # 2. Search user uploads
                     user_mm_i = client.get_index(name="multimodal_kb")
-                    user_mm_results = user_mm_i.query(vector=q_vec, top_k=2)
+                    user_mm_results_raw = user_mm_i.query(vector=q_vec, top_k=2)
+                    user_mm_results = [r for r in user_mm_results_raw if r.get('distance', 1.0) <= SIMILARITY_THRESHOLD]
                     
-                    # Show user uploads first if any
-                    for match in user_mm_results:
-                        meta = match.get('meta', {})
-                        src = meta.get('source')
-                        path = f"uploads/{src}"
-                        if os.path.exists(path):
-                            if meta.get('type') == 'video':
-                                st.video(path)
-                            else:
-                                st.image(path, caption=f"User Upload: {src}")
+                    # Show results
+                    has_vis = False
+                    if user_mm_results:
+                        has_vis = True
+                        for match in user_mm_results:
+                            meta = match.get('meta', {})
+                            src = meta.get('source')
+                            path = f"uploads/{src}"
+                            if os.path.exists(path):
+                                if meta.get('type') == 'video':
+                                    st.video(path)
+                                else:
+                                    st.image(path, caption=f"User Upload: {src}")
 
-                    # Show catalog images
                     for m in mm_results:
+                        has_vis = True
                         meta = m.get('meta', {})
                         st.image(meta.get('url'), caption=f"Catalog: {meta.get('desc')}")
                         
-                    if not mm_results and not user_mm_results:
-                        st.caption("No visual matches found.")
+                    if not has_vis:
+                        st.warning("🖼️ I have no such type exist in my database (Visual)")
                 except:
                     st.caption("No visual search results.")
 
