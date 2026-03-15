@@ -117,51 +117,18 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("---")
-st.sidebar.title("🛠️ Project Controls")
-if st.sidebar.button("🚀 Seed Product Catalog"):
-    # Seed Recommendations
-    REC_INDEX_NAME = "endee_recommendations_ui"
-    try: client.create_index(name=REC_INDEX_NAME, dimension=384, space_type="cosine", precision=Precision.FLOAT32)
-    except: pass
-    rec_i = client.get_index(name=REC_INDEX_NAME)
-    RECS_CAT = [
-        {"id": "p1", "desc": "Wireless Noise Cancelling Headphones, over-ear, black", "category": "Electronics"},
-        {"id": "p2", "desc": "Running Shoes, lightweight, breathable mesh, blue", "category": "Footwear"},
-        {"id": "p3", "desc": "Yoga Mat, non-slip, eco-friendly cork, 5mm thick", "category": "Fitness"},
-        {"id": "p4", "desc": "Smartwatch with Heart Rate Monitor and GPS, waterproof", "category": "Electronics"},
-        {"id": "p5", "desc": "Organic Green Tea, loose leaf, 100g", "category": "Groceries"},
-        {"id": "p6", "desc": "Ergonomic Office Chair with Lumbar Support, adjustable height", "category": "Home Office"},
-        {"id": "p7", "desc": "Cast Iron Skillet, pre-seasoned, 12-inch, heavy duty", "category": "Kitchen"},
-        {"id": "p8", "desc": "Sci-Fi Novel: 'The Last Frontier', Hardcover first edition", "category": "Books"},
-        {"id": "p9", "desc": "Portable Waterproof Speaker with 20-hour battery life", "category": "Outdoor"},
-        {"id": "p10", "desc": "Dimmable LED Desk Lamp with Wireless Charging base", "category": "Home Office"},
-        {"id": "p11", "desc": "Electric Gooseneck Kettle, temperature control, stainless steel", "category": "Kitchen"},
-        {"id": "p12", "desc": "Scented Soy Candle, Lavender and Eucalyptus, 40-hour burn", "category": "Home Decor"}
-    ]
-    rec_i.upsert([{"id": p["id"], "vector": model.encode([p["desc"]])[0].tolist(), "meta": p} for p in RECS_CAT])
-    st.sidebar.success("✅ Recommendations Catalog Synchronized!")
-
-st.sidebar.markdown("---")
 st.sidebar.title("🎮 App Navigation")
 app_mode = st.sidebar.radio("Select AI Feature:", [
-    "🌐 Unified AI Search Dashboard",
     "🤖 AI Knowledge Assistant",
-    "🛍️ Product Recommendations",
     "🕵️ Agentic AI Memory"
 ])
 st.sidebar.markdown("---")
 
 # ── Main Area Routing ────────────────────────────────────
 
-if app_mode == "🌐 Unified AI Search Dashboard":
-    st.title("🌐 Unified AI Search Dashboard")
-    st.markdown("One search powered by **Endee Vector DB**. Retrieves Knowledge and Products simultaneously.")
-elif app_mode == "🤖 AI Knowledge Assistant":
+if app_mode == "🤖 AI Knowledge Assistant":
     st.title("🤖 AI Knowledge Assistant")
     st.markdown("Ask deep questions about your uploaded documents. Endee retrieves context for accurate LLM answers.")
-elif app_mode == "🛍️ Product Recommendations":
-    st.title("🛍️ Product Recommendations")
-    st.markdown("Semantic intent-based search for products in the catalog.")
 elif app_mode == "🕵️ Agentic AI Memory":
     st.title("🕵️ Ghost-Protocol: Agentic AI Memory")
     st.markdown("This mode simulates an **Autonomous Agent** that uses Endee as its Long-Term Memory to handle server incidents.")
@@ -233,10 +200,8 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
         with st.chat_message("user"):
             st.markdown(prompt)
 
-    # 📝 1. AI Knowledge Assistant Section (CORE RAG)
-    if app_mode in ["🌐 Unified AI Search Dashboard", "🤖 AI Knowledge Assistant"]:
-        if app_mode == "🌐 Unified AI Search Dashboard": st.subheader("🤖 AI Knowledge Assistant")
-        
+    # 📝 AI Knowledge Assistant Section (CORE RAG)
+    if app_mode == "🤖 AI Knowledge Assistant":
         with st.spinner("🧠 RAG Pipeline: Retrieving Context from Endee..."):
             try:
                 kb_index = client.get_index(name=INDEX_NAME)
@@ -272,7 +237,7 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
         --- PROVIDED CONTEXT FROM UPLOADED DOCUMENTS ---
         {context_block}
 
-        --- RECENT CONTEXT (CHAT HISTORY) ---
+        --- RECENT CHAT HISTORY ---
         {chat_history_str}
 
         User Question: {prompt}
@@ -301,41 +266,15 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
                 response_text = "I'm sorry, I encountered a quota issue and couldn't find any documents to help with that query."
 
         # Outcome Rendering
-        if app_mode == "🤖 AI Knowledge Assistant":
-            with st.chat_message("assistant"):
-                st.markdown(response_text)
-            st.session_state.messages.append({"role": "assistant", "content": response_text})
-        else:
-            st.info(response_text)
-            if sources:
-                with st.expander("📚 View Retrieved Chunks (Sources)"):
-                    for src in sources: st.caption(f"📍 Reference: {src}")
-                    for m in kb_results: st.write(m.get('meta', {}).get('text'))
+        with st.chat_message("assistant"):
+            st.markdown(response_text)
+        st.session_state.messages.append({"role": "assistant", "content": response_text})
 
-    if app_mode == "🌐 Unified AI Search Dashboard": st.divider()
+        if sources:
+            with st.expander("📚 View Retrieved Chunks (Sources)"):
+                for src in sources: st.caption(f"📍 Reference: {src}")
+                for m in kb_results: st.write(m.get('meta', {}).get('text'))
 
-    # 🛍️ 2. Product Recommendations Section
-    if app_mode in ["🌐 Unified AI Search Dashboard", "🛍️ Product Recommendations"]:
-        col_rec = st.container()
-
-        with col_rec:
-            if app_mode == "🌐 Unified AI Search Dashboard": st.subheader("🛍️ Product Recommendations")
-            with st.spinner("Finding similar products..."):
-                try:
-                    rec_i = client.get_index(name="endee_recommendations_ui")
-                    unfiltered_results = rec_i.query(vector=model.encode([prompt])[0].tolist(), top_k=2 if app_mode == "🌐 Unified AI Search Dashboard" else 4)
-                    rec_results = [r for r in unfiltered_results if r.get('distance', 1.0) <= SIMILARITY_THRESHOLD]
-                    
-                    if not rec_results: 
-                        st.warning("🔍 I have no such type exist in my database (Product)")
-                    else:
-                        cols = st.columns(2) if app_mode != "🌐 Unified AI Search Dashboard" else [st.container()]
-                        for i, m in enumerate(rec_results):
-                            meta = m.get('meta', {})
-                            with (cols[i % 2] if app_mode != "🌐 Unified AI Search Dashboard" else st.container()):
-                                st.success(f"**{meta.get('category')}**\n\n{meta.get('desc')}")
-                except:
-                    st.caption("No recommendations found. Use Sidebar to seed catalog.")
 
 
 

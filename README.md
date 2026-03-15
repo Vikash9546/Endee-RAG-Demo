@@ -95,36 +95,57 @@ python incident_agent.py
 ```
 This runs an autonomous loop where the agent:
 1. Receives a server crash error.
-2. Queries Endee to see if a similar error happened before.
-3. Automatically decides whether to **Fix** it (by executing a known solution) or **Escalate** it to a human based on difficulty. 
+# ⚡ Endee AI: Knowledge & Agentic Memory Platform
+
+A high-performance implementation of **RAG (Retrieval Augmented Generation)** and **Autonomous Agent Operations** using the **Endee Vector Database**.
 
 ---
 
-### Option 4: AI Recommendation System
-A system that suggests products based on semantic similarity to a user's natural language profile.
+### 🚀 Core Features
+
+#### 1. 🤖 AI Knowledge Assistant (Stateful RAG)
+A professional-grade conversational interface that allows you to chat with your private documents.
+- **Deep PDF/MD Ingestion**: Parses and chunks documents into Endee.
+- **Stateful Memory**: Remembers chat history for fluid, multi-turn follow-ups.
+- **Grounding & Citations**: Answers are strictly based on provided context with automatic source attribution.
+- **Gemini 3-Flash Integration**: Uses the latest fast-inference models for near-instant responses.
+
+#### 2. 🕵️ Agentic AI Memory (Ghost-Protocol)
+An autonomous "Incident Response" agent that uses Endee as its long-term stateful memory.
+- **Autonomous Decision Engine**: Detects the severity of incoming alerts.
+- **Memory-Driven Logic**: Consults past "experience" in Endee to decide whether to **Auto-Fix** a server or **Escalate** to a human.
+- **Persistent State**: Learns from every past incident logged in the vector store.
+
+---
+
+### 🛠️ Quick Start
+
+1. **Install Dependencies**:
 ```bash
-python recommendation.py
+pip install -r requirements.txt
 ```
-This script:
-1. Embeds a mock catalog of 5 products (e.g. Yoga Mats, Running shoes, Headphones, Smartwatches).
-2. Takes a user profile like: *"I am looking for something to help me track my runs and workouts."*
-3. Queries Endee and perfectly returns the **Running Shoes** and **Smartwatch** through semantic meaning.
-4. **Logic**: Uses a similarity threshold to ensure random products aren't shown for unrelated queries.
 
----
+2. **Configure Environment**:
+Create a `.env` file with:
+```env
+GEMINI_API_KEY=your_key_here
+```
 
----
-
-### Bonus: Unified AI Search Dashboard
+3. **Launch the Dashboard**:
 ```bash
 streamlit run app.py
 ```
-Opens a high-performance **Multi-Feature Dashboard** at `http://localhost:8501`. 
-- **🌐 Unified Search**: One search box for Knowledge and Products.
-- **🤖 AI Knowledge Assistant**: Deep PDF/Text RAG using the new **Google Gemini 3-Flash**.
-- **🛍️ Product recommendations**: Smart intent-based similarity filtering.
 
-> **New Feature**: I have implemented a similarity threshold that guarantees the AI only shows relevant results. If nothing matches, the dashboard accurately tells you: *"I have no such type exist in my database."*
+---
+
+### 📁 Project Structure
+- `app.py`: The main Streamlit dashboard featuring both AI modes.
+- `incident_agent.py`: CLI logic for the Ghost-Protocol agent.
+- `ingest.py`: Core logic for vectorizing text data into Endee.
+- `query.py`: Script for direct semantic querying of the vector store.
+
+---
+© 2026 Endee AI Project. Built for high-speed intelligence.
 
 ---
 
