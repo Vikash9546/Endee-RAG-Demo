@@ -109,7 +109,7 @@ st.sidebar.markdown("---")
 
 st.sidebar.markdown("---")
 st.sidebar.title("🛠️ Features")
-app_mode = st.sidebar.radio("Choose AI Demo:", ["1. Chatbot Knowledge Base", "2. AI Recommendations Engine"])
+app_mode = st.sidebar.radio("Choose AI Demo:", ["1. Chatbot Knowledge Base", "2. AI Recommendations Engine", "3. Multi-Modal Visual Search"])
 st.sidebar.markdown("---")
 # ── Main Area Routing ────────────────────────────────────
 
@@ -276,3 +276,68 @@ elif app_mode == "2. AI Recommendations Engine":
                 
                 with (col1 if i % 2 == 0 else col2):
                     st.info(f"**{meta.get('category', '')}**\n\n{meta.get('desc', '')}\n\n*Similarity Score: {dist:.4f}*")
+
+elif app_mode == "3. Multi-Modal Visual Search":
+    st.title("📸 Multi-Modal Visual Search")
+    st.markdown("Search across different data types! Use **Text** to find the most visually similar **Images** using CLIP and Endee.")
+    
+    MM_INDEX_NAME = "endee_multimodal_ui"
+    
+    # Load CLIP Model (cached)
+    @st.cache_resource
+    def load_clip():
+        return SentenceTransformer("clip-ViT-B-32")
+    
+    clip_model = load_clip()
+    
+    try:
+        mm_index = client.get_index(name=MM_INDEX_NAME)
+    except Exception:
+        client.create_index(name=MM_INDEX_NAME, dimension=512, space_type="cosine", precision=Precision.FLOAT32)
+        mm_index = client.get_index(name=MM_INDEX_NAME)
+        
+    CATALOG = [
+        {"id": "img_1", "category": "Fashion", "url": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?width=300", "desc": "A white plain t-shirt"},
+        {"id": "img_2", "category": "Fashion", "url": "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?width=300", "desc": "A black plain t-shirt"},
+        {"id": "img_3", "category": "Footwear", "url": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?width=300", "desc": "Red Nike running shoes"},
+        {"id": "img_4", "category": "Pets", "url": "https://images.unsplash.com/photo-1517849845537-4d257902454a?width=300", "desc": "A cute dog looking at camera"},
+        {"id": "img_5", "category": "Vehicles", "url": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?width=300", "desc": "A sleek silver sports car"}
+    ]
+    
+    if st.button("🚀 Seed Visual Catalog into Endee"):
+        import requests
+        from io import BytesIO
+        from PIL import Image
+        
+        with st.spinner("Downloading and encoding images... (One-time setup)"):
+            payloads = []
+            for item in CATALOG:
+                try:
+                    resp = requests.get(item["url"], stream=True, timeout=10)
+                    img = Image.open(resp.raw)
+                    vec = clip_model.encode(img).tolist()
+                    payloads.append({"id": item["id"], "vector": vec, "meta": item})
+                except Exception as e:
+                    st.error(f"Failed to load {item['desc']}: {e}")
+            
+            if payloads:
+                mm_index.upsert(payloads)
+                st.success(f"Successfully ingested {len(payloads)} visual vectors!")
+
+    visual_query = st.text_input("Describe what you are looking for visually:", "I want to buy a pair of athletic shoes for running.")
+    
+    if st.button("Search Images"):
+        with st.spinner("Crossing the modal gap (Text -> Image)..."):
+            q_vec = clip_model.encode([visual_query])[0].tolist()
+            results = mm_index.query(vector=q_vec, top_k=2)
+            
+            if results:
+                st.markdown("### 🎯 Pinterest-style Visual Matches:")
+                c1, c2 = st.columns(2)
+                for i, match in enumerate(results):
+                    m = match.get('meta', {})
+                    d = match.get('distance', 0)
+                    with (c1 if i == 0 else c2):
+                        st.image(m.get('url'), caption=f"{m.get('desc')} (Distance: {d:.4f})")
+            else:
+                st.warning("No images found. Please seed the catalog first.")
