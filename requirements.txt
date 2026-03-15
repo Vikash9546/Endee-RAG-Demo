@@ -9,3 +9,4 @@ tqdm
 pymupdf
 streamlit
 pypdf
+python-dotenv

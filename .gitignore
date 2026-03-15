@@ -8,3 +8,4 @@ endee_data/
 
 # Mac
 .DS_Store
+.env

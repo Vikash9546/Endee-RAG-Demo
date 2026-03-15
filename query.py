@@ -13,8 +13,12 @@ query.py — RAG Retrieval & Generation Script
 import os
 import sys
 import argparse
+import time
 from sentence_transformers import SentenceTransformer
 from endee import Endee
+from dotenv import load_dotenv
+
+load_dotenv()
 
 INDEX_NAME = "knowledge_base"
 

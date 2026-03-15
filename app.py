@@ -11,6 +11,10 @@ import fitz  # PyMuPDF
 import streamlit as st
 from sentence_transformers import SentenceTransformer
 from endee import Endee, Precision
+from dotenv import load_dotenv
+
+# Load local secrets from .env
+load_dotenv()
 
 # ── Page Config ─────────────────────────────────────────
 st.set_page_config(page_title="Endee AI Knowledge Base", page_icon="⚡", layout="wide")
