@@ -68,32 +68,29 @@ def generate_with_openai(prompt: str, api_key: str) -> str:
 
 
 def generate_with_gemini(prompt: str, api_key: str) -> str:
-    """Generate answer using Google Gemini (free tier). Tries multiple models."""
-    import google.generativeai as genai
+    """Generate answer using Google Gemini (free tier) via new google-genai library."""
+    from google import genai
     import time as _time
 
-    genai.configure(api_key=api_key)
+    client = genai.Client(api_key=api_key)
 
-    # Try multiple models — ordered by free tier generosity
-    models_to_try = ["gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-2.0-flash"]
+    # Try requested model, then fallbacks
+    models_to_try = ["gemini-3-flash-preview", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
     last_error = None
 
     for model_name in models_to_try:
         for attempt in range(2):  # retry once per model
             try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
+                response = client.models.generate_content(model=model_name, contents=prompt)
                 return response.text
             except Exception as e:
                 last_error = e
-                err_str = str(e)
-                if "429" in err_str and attempt == 0:
-                    _time.sleep(10)  # wait before retry on rate limit
-                elif "404" in err_str:
-                    break  # model doesn't exist, skip to next
+                # Basic rate limit check for retry
+                if "429" in str(e) and attempt == 0:
+                    _time.sleep(10)
                 else:
-                    break  # other error, skip to next model
-
+                    break  # skip to next model
+    
     raise last_error
 
 

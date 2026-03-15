@@ -188,14 +188,31 @@ if prompt := st.chat_input("Ask a question, find a product, or search visually..
         
         gemini_key = os.environ.get("GEMINI_API_KEY")
         response_text = None
-        if gemini_key:
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=gemini_key)
-                gmodel = genai.GenerativeModel("gemini-1.5-flash")
-                resp = gmodel.generate_content(f"Answer based on context: {context_block}\nQuestion: {prompt}")
-                response_text = resp.text
-            except: pass
+        llm_prompt = f"Answer based on context: {context_block}\nQuestion: {prompt}"
+        if gemini_key and not response_text:
+            with st.spinner("Generating answer with Google Gemini..."):
+                try:
+                    from google import genai
+                    gen_client = genai.Client(api_key=gemini_key)
+                    # Use gemini-3-flash-preview as requested by user
+                    try:
+                        resp = gen_client.models.generate_content(
+                            model="gemini-3-flash-preview", 
+                            contents=llm_prompt
+                        )
+                        response_text = resp.text
+                    except Exception as e1:
+                        # Fallback to 2.0 if 3-flash-preview is not available
+                        try:
+                            resp = gen_client.models.generate_content(
+                                model="gemini-2.0-flash", 
+                                contents=llm_prompt
+                            )
+                            response_text = resp.text
+                        except Exception as e2:
+                            st.caption(f"⚠️ Gemini Failed: {e2}")
+                except Exception as e:
+                    st.caption(f"⚠️ Gemini Setup failed: {e}")
         
         if not response_text:
             response_text = "⚠️ *Quota hit. Showing raw Endee Context:*\n\n" + contexts[0][:500] + "..."
