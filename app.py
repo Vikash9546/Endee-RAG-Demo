@@ -12,6 +12,9 @@ import streamlit as st
 from sentence_transformers import SentenceTransformer
 from endee import Endee, Precision
 from dotenv import load_dotenv
+import cv2
+from PIL import Image
+import requests
 
 # Load local secrets from .env
 load_dotenv()
@@ -34,8 +37,13 @@ def load_model():
 def get_endee():
     return Endee()
 
+@st.cache_resource
+def load_clip():
+    return SentenceTransformer("clip-ViT-B-32")
+
 model = load_model()
 client = get_endee()
+clip_m = load_clip()
 
 # ── Helper Functions ─────────────────────────────────────
 
@@ -66,13 +74,23 @@ def ensure_index():
             pass
         return client.get_index(name=INDEX_NAME)
 
+def extract_video_frame(path):
+    """Extracts the first frame of a video for vectorization."""
+    cap = cv2.VideoCapture(path)
+    ret, frame = cap.read()
+    cap.release()
+    if ret:
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return Image.fromarray(frame_rgb)
+    return None
+
 # ── Sidebar: Document Upload ─────────────────────────────
 
 st.sidebar.title("📁 Upload Documents")
 st.sidebar.markdown("Upload **PDFs**, **Markdown**, or **Text** files to build your knowledge base.")
 
 uploaded_files = st.sidebar.file_uploader(
-    "Choose files", type=["pdf", "md", "txt"], accept_multiple_files=True
+    "Choose files", type=["pdf", "md", "txt", "png", "jpg", "jpeg", "mp4", "mov"], accept_multiple_files=True
 )
 
 if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
@@ -80,34 +98,64 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
     all_payloads = []
 
     progress = st.sidebar.progress(0, text="Processing files...")
+    
+    mm_index_name = "multimodal_kb"
+    try: client.create_index(name=mm_index_name, dimension=512, space_type="cosine", precision=Precision.FLOAT32)
+    except: pass
+    mm_index = client.get_index(name=mm_index_name)
+
     for fi, uploaded in enumerate(uploaded_files):
-        # Save to temp file for PyMuPDF
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded.name)[1]) as tmp:
+        ext = os.path.splitext(uploaded.name)[1].lower()
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
             tmp.write(uploaded.read())
             tmp_path = tmp.name
 
-        text = extract_text(tmp_path, uploaded.name)
-        chunks = chunk_text(text)
-        vectors = model.encode([c for c in chunks], show_progress_bar=False)
+        if ext in [".pdf", ".md", ".txt"]:
+            # Text Processing
+            text = extract_text(tmp_path, uploaded.name)
+            chunks = chunk_text(text)
+            vectors = model.encode([c for c in chunks], show_progress_bar=False)
+            payloads = []
+            for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+                payloads.append({
+                    "id": f"text::{uploaded.name}::{i}",
+                    "vector": vec.tolist(),
+                    "meta": {"text": chunk, "source": uploaded.name, "type": "text"},
+                })
+            index.upsert(payloads)
+        
+        elif ext in [".png", ".jpg", ".jpeg"]:
+            # Image Processing
+            img = Image.open(tmp_path)
+            vec = clip_m.encode(img).tolist()
+            mm_index.upsert([{
+                "id": f"img::{uploaded.name}",
+                "vector": vec,
+                "meta": {"source": uploaded.name, "type": "image", "url": "local"} # in real app, save path
+            }])
+            # For demo, we store the file in a local 'uploads' dir to show in UI
+            if not os.path.exists("uploads"): os.makedirs("uploads")
+            import shutil
+            shutil.copy(tmp_path, f"uploads/{uploaded.name}")
 
-        for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
-            all_payloads.append({
-                "id": f"{uploaded.name}::chunk-{i}",
-                "vector": vec.tolist(),
-                "meta": {"text": chunk, "source": uploaded.name, "chunk_index": i},
-            })
+        elif ext in [".mp4", ".mov"]:
+            # Video Processing
+            frame = extract_video_frame(tmp_path)
+            if frame:
+                vec = clip_m.encode(frame).tolist()
+                mm_index.upsert([{
+                    "id": f"video::{uploaded.name}",
+                    "vector": vec,
+                    "meta": {"source": uploaded.name, "type": "video"}
+                }])
+                if not os.path.exists("uploads"): os.makedirs("uploads")
+                shutil.copy(tmp_path, f"uploads/{uploaded.name}")
 
         os.unlink(tmp_path)
         progress.progress((fi + 1) / len(uploaded_files), text=f"Processed {uploaded.name}")
 
-    if all_payloads:
-        BATCH = 100
-        for i in range(0, len(all_payloads), BATCH):
-            index.upsert(all_payloads[i : i + BATCH])
-
-        st.sidebar.success(f"✅ Ingested {len(all_payloads)} chunks from {len(uploaded_files)} file(s)!")
-    else:
-        st.sidebar.warning("No text extracted from the uploaded files.")
+    st.sidebar.success(f"✅ Ingested {len(uploaded_files)} file(s) into Multi-Modal Intelligence!")
 
 st.sidebar.markdown("---")
 
@@ -241,13 +289,28 @@ if prompt := st.chat_input("Ask a question, find a product, or search visually..
         st.subheader("📸 Visual Search")
         with st.spinner("Fetching visual matches..."):
             try:
-                @st.cache_resource
-                def load_clip(): return SentenceTransformer("clip-ViT-B-32")
-                clip_m = load_clip()
+                # 1. Search seed catalog
                 mm_i = client.get_index(name="endee_multimodal_ui")
-                mm_results = mm_i.query(vector=clip_m.encode([prompt])[0].tolist(), top_k=1)
+                q_vec = clip_m.encode([prompt])[0].tolist()
+                mm_results = mm_i.query(vector=q_vec, top_k=1)
+                
+                # 2. Search user uploads
+                user_mm_i = client.get_index(name="multimodal_kb")
+                user_mm_results = user_mm_i.query(vector=q_vec, top_k=1)
+                
+                # Show results
+                if user_mm_results:
+                    meta = user_mm_results[0].get('meta', {})
+                    src = meta.get('source')
+                    path = f"uploads/{src}"
+                    if os.path.exists(path):
+                        if meta.get('type') == 'video':
+                            st.video(path)
+                        else:
+                            st.image(path, caption=f"User Upload: {src}")
+
                 for m in mm_results:
                     meta = m.get('meta', {})
-                    st.image(meta.get('url'), caption=meta.get('desc'))
+                    st.image(meta.get('url'), caption=f"Catalog: {meta.get('desc')}")
             except:
-                st.caption("No visual matches. Use Sidebar to seed catalog.")
+                st.caption("No visual matches found.")
