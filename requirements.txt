@@ -11,4 +11,3 @@ streamlit
 pypdf
 python-dotenv
 google-genai
-opencv-python-headless

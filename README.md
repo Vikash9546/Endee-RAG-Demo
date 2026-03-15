@@ -108,28 +108,23 @@ python recommendation.py
 This script:
 1. Embeds a mock catalog of 5 products (e.g. Yoga Mats, Running shoes, Headphones, Smartwatches).
 2. Takes a user profile like: *"I am looking for something to help me track my runs and workouts."*
-3. Queries Endee and perfectly returns the **Running Shoes** and **Smartwatch** through semantic meaning rather than keyword matching.
+3. Queries Endee and perfectly returns the **Running Shoes** and **Smartwatch** through semantic meaning.
+4. **Logic**: Uses a similarity threshold to ensure random products aren't shown for unrelated queries.
 
 ---
 
-### Option 5: Multi-Modal (Image + Text) Search
-A system that replicates Pinterest visual search, allowing users to search across different data types (e.g., querying an image via text).
-```bash
-python multimodal_search.py
-```
-This script:
-1. Loads the `clip-ViT-B-32` Multi-Modal model from Sentence-Transformers which understands both Images and Text in the same vector space.
-2. Ingests raw Image files (fake catalogs of clothes, cars, pets, shoes) as vectors directly into Endee.
-3. Takes a user *TEXT* query: *"I want to buy a pair of athletic shoes for running."*
-4. Endee accurately fetches the actual visual **Image URL** of the Nike shoes because their vectors align perfectly!
-
 ---
 
-### Bonus: Interactive Chatbot UI
+### Bonus: Unified AI Search Dashboard
 ```bash
 streamlit run app.py
 ```
-Opens a full chatbot at `http://localhost:8501` where you can **upload PDFs** from the sidebar and ask questions in a chat interface.
+Opens a high-performance **Multi-Feature Dashboard** at `http://localhost:8501`. 
+- **🌐 Unified Search**: One search box for Knowledge and Products.
+- **🤖 AI Knowledge Assistant**: Deep PDF/Text RAG using the new **Google Gemini 3-Flash**.
+- **🛍️ Product recommendations**: Smart intent-based similarity filtering.
+
+> **New Feature**: I have implemented a similarity threshold that guarantees the AI only shows relevant results. If nothing matches, the dashboard accurately tells you: *"I have no such type exist in my database."*
 
 ---
 

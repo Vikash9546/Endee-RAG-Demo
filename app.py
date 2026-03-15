@@ -13,8 +13,6 @@ from sentence_transformers import SentenceTransformer
 from endee import Endee, Precision
 from dotenv import load_dotenv
 import shutil
-import cv2
-from PIL import Image
 import requests
 
 # Load local secrets from .env
@@ -39,13 +37,8 @@ def load_model():
 def get_endee():
     return Endee()
 
-@st.cache_resource
-def load_clip():
-    return SentenceTransformer("clip-ViT-B-32")
-
 model = load_model()
 client = get_endee()
-clip_m = load_clip()
 
 # ── Helper Functions ─────────────────────────────────────
 
@@ -76,23 +69,13 @@ def ensure_index():
             pass
         return client.get_index(name=INDEX_NAME)
 
-def extract_video_frame(path):
-    """Extracts the first frame of a video for vectorization."""
-    cap = cv2.VideoCapture(path)
-    ret, frame = cap.read()
-    cap.release()
-    if ret:
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        return Image.fromarray(frame_rgb)
-    return None
-
 # ── Sidebar: Document Upload ─────────────────────────────
 
 st.sidebar.title("📁 Upload Documents")
 st.sidebar.markdown("Upload **PDFs**, **Markdown**, or **Text** files to build your knowledge base.")
 
 uploaded_files = st.sidebar.file_uploader(
-    "Choose files", type=["pdf", "md", "txt", "png", "jpg", "jpeg", "mp4", "mov"], accept_multiple_files=True
+    "Choose files", type=["pdf", "md", "txt"], accept_multiple_files=True
 )
 
 if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
@@ -100,11 +83,6 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
     all_payloads = []
 
     progress = st.sidebar.progress(0, text="Processing files...")
-    
-    mm_index_name = "multimodal_kb"
-    try: client.create_index(name=mm_index_name, dimension=512, space_type="cosine", precision=Precision.FLOAT32)
-    except: pass
-    mm_index = client.get_index(name=mm_index_name)
 
     for fi, uploaded in enumerate(uploaded_files):
         ext = os.path.splitext(uploaded.name)[1].lower()
@@ -126,44 +104,17 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
                     "meta": {"text": chunk, "source": uploaded.name, "type": "text"},
                 })
             index.upsert(payloads)
-        
-        elif ext in [".png", ".jpg", ".jpeg"]:
-            # Image Processing
-            img = Image.open(tmp_path)
-            vec = clip_m.encode(img).tolist()
-            mm_index.upsert([{
-                "id": f"img::{uploaded.name}",
-                "vector": vec,
-                "meta": {"source": uploaded.name, "type": "image", "url": "local"} # in real app, save path
-            }])
-            # For demo, we store the file in a local 'uploads' dir to show in UI
-            if not os.path.exists("uploads"): os.makedirs("uploads")
-            import shutil
-            shutil.copy(tmp_path, f"uploads/{uploaded.name}")
-
-        elif ext in [".mp4", ".mov"]:
-            # Video Processing
-            frame = extract_video_frame(tmp_path)
-            if frame:
-                vec = clip_m.encode(frame).tolist()
-                mm_index.upsert([{
-                    "id": f"video::{uploaded.name}",
-                    "vector": vec,
-                    "meta": {"source": uploaded.name, "type": "video"}
-                }])
-                if not os.path.exists("uploads"): os.makedirs("uploads")
-                shutil.copy(tmp_path, f"uploads/{uploaded.name}")
 
         os.unlink(tmp_path)
         progress.progress((fi + 1) / len(uploaded_files), text=f"Processed {uploaded.name}")
 
-    st.sidebar.success(f"✅ Ingested {len(uploaded_files)} file(s) into Multi-Modal Intelligence!")
+    st.sidebar.success(f"✅ Ingested {len(uploaded_files)} file(s) into AI Knowledge Assistant!")
 
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("---")
 st.sidebar.title("🛠️ Project Controls")
-if st.sidebar.button("🚀 Seed All Catalogs (Recs & Visual)"):
+if st.sidebar.button("🚀 Seed Product Catalog"):
     # Seed Recommendations
     REC_INDEX_NAME = "endee_recommendations_ui"
     try: client.create_index(name=REC_INDEX_NAME, dimension=384, space_type="cosine", precision=Precision.FLOAT32)
@@ -184,36 +135,7 @@ if st.sidebar.button("🚀 Seed All Catalogs (Recs & Visual)"):
         {"id": "p12", "desc": "Scented Soy Candle, Lavender and Eucalyptus, 40-hour burn", "category": "Home Decor"}
     ]
     rec_i.upsert([{"id": p["id"], "vector": model.encode([p["desc"]])[0].tolist(), "meta": p} for p in RECS_CAT])
-
-    # Seed Multi-Modal
-    import requests
-    from PIL import Image
-    MM_INDEX_NAME = "endee_multimodal_ui"
-    try: client.create_index(name=MM_INDEX_NAME, dimension=512, space_type="cosine", precision=Precision.FLOAT32)
-    except: pass
-    mm_i = client.get_index(name=MM_INDEX_NAME)
-    VIS_CAT = [
-        {"id": "img_1", "category": "Fashion", "url": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?width=300", "desc": "A white plain t-shirt"},
-        {"id": "img_2", "category": "Fashion", "url": "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?width=300", "desc": "A black plain t-shirt"},
-        {"id": "img_3", "category": "Footwear", "url": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?width=300", "desc": "Red Nike running shoes"},
-        {"id": "img_4", "category": "Pets", "url": "https://images.unsplash.com/photo-1517849845537-4d257902454a?width=300", "desc": "A cute dog looking at camera"},
-        {"id": "img_5", "category": "Vehicles", "url": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?width=300", "desc": "A sleek silver sports car"}
-    ]
-    
-    @st.cache_resource
-    def load_clip():
-        return SentenceTransformer("clip-ViT-B-32")
-    clip_m = load_clip()
-
-    mm_payloads = []
-    for item in VIS_CAT:
-        try:
-            r = requests.get(item["url"], stream=True, timeout=5)
-            img = Image.open(r.raw)
-            mm_payloads.append({"id": item["id"], "vector": clip_m.encode(img).tolist(), "meta": item})
-        except: pass
-    if mm_payloads: mm_i.upsert(mm_payloads)
-    st.sidebar.success("✅ Catalogs Synchronized!")
+    st.sidebar.success("✅ Recommendations Catalog Synchronized!")
 
 st.sidebar.markdown("---")
 st.sidebar.title("🎮 App Navigation")
@@ -221,7 +143,6 @@ app_mode = st.sidebar.radio("Select AI Feature:", [
     "🌐 Unified AI Search Dashboard",
     "🤖 AI Knowledge Assistant",
     "🛍️ Product Recommendations",
-    "📸 Multi-Media Model",
     "🕵️ Agentic AI Memory"
 ])
 st.sidebar.markdown("---")
@@ -230,7 +151,7 @@ st.sidebar.markdown("---")
 
 if app_mode == "🌐 Unified AI Search Dashboard":
     st.title("🌐 Unified AI Search Dashboard")
-    st.markdown("One search powered by **Endee Vector DB**. Retrieves Knowledge, Products, and Visuals simultaneously.")
+    st.markdown("One search powered by **Endee Vector DB**. Retrieves Knowledge and Products simultaneously.")
 elif app_mode == "🤖 AI Knowledge Assistant":
     st.title("🤖 AI Knowledge Assistant")
     st.markdown("Ask deep questions about your uploaded documents. Endee retrieves context for accurate LLM answers.")
@@ -338,10 +259,7 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
 
     # 🛍️ 2. Product Recommendations Section
     if app_mode in ["🌐 Unified AI Search Dashboard", "🛍️ Product Recommendations"]:
-        if app_mode == "🌐 Unified AI Search Dashboard":
-            col_rec, col_vis = st.columns(2)
-        else:
-            col_rec = st.container()
+        col_rec = st.container()
 
         with col_rec:
             if app_mode == "🌐 Unified AI Search Dashboard": st.subheader("🛍️ Product Recommendations")
@@ -365,51 +283,5 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
                 except:
                     st.caption("No recommendations found. Use Sidebar to seed catalog.")
 
-    # 📸 3. Multi-Media Model Section
-    if app_mode in ["🌐 Unified AI Search Dashboard", "📸 Multi-Media Model"]:
-        if app_mode == "🌐 Unified AI Search Dashboard":
-            # We already have col_vis from the st.columns(2) above
-            pass
-        else:
-            col_vis = st.container()
 
-        with col_vis:
-            if app_mode == "🌐 Unified AI Search Dashboard": st.subheader("📸 Visual Search")
-            with st.spinner("Fetching visual matches..."):
-                try:
-                    q_vec = clip_m.encode([prompt])[0].tolist()
-                    
-                    # 1. Search seed catalog
-                    mm_i = client.get_index(name="endee_multimodal_ui")
-                    mm_results_raw = mm_i.query(vector=q_vec, top_k=1)
-                    mm_results = [r for r in mm_results_raw if r.get('distance', 1.0) <= SIMILARITY_THRESHOLD]
-                    
-                    # 2. Search user uploads
-                    user_mm_i = client.get_index(name="multimodal_kb")
-                    user_mm_results_raw = user_mm_i.query(vector=q_vec, top_k=2)
-                    user_mm_results = [r for r in user_mm_results_raw if r.get('distance', 1.0) <= SIMILARITY_THRESHOLD]
-                    
-                    # Show results
-                    has_vis = False
-                    if user_mm_results:
-                        has_vis = True
-                        for match in user_mm_results:
-                            meta = match.get('meta', {})
-                            src = meta.get('source')
-                            path = f"uploads/{src}"
-                            if os.path.exists(path):
-                                if meta.get('type') == 'video':
-                                    st.video(path)
-                                else:
-                                    st.image(path, caption=f"User Upload: {src}")
-
-                    for m in mm_results:
-                        has_vis = True
-                        meta = m.get('meta', {})
-                        st.image(meta.get('url'), caption=f"Catalog: {meta.get('desc')}")
-                        
-                    if not has_vis:
-                        st.warning("🖼️ I have no such type exist in my database (Visual)")
-                except:
-                    st.caption("No visual search results.")
 
