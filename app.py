@@ -21,6 +21,10 @@ load_dotenv()
 # ── Page Config ─────────────────────────────────────────
 st.set_page_config(page_title="Endee AI Knowledge Base", page_icon="⚡", layout="wide")
 
+# Initialize Chat History for RAG
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
 INDEX_NAME = "knowledge_base"
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
@@ -214,13 +218,26 @@ elif app_mode == "🕵️ Agentic AI Memory":
             st.error("**DECISION: EMERGENCY ESCALATE ☎️**\n\nThis error signature is unknown to my internal database. Paging human on-call immediately.")
 
 
+# Display prior messages if in Knowledge Assistant mode
+if app_mode == "🤖 AI Knowledge Assistant":
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
 # Unified search input
 if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
     
-    # 📝 1. AI Knowledge Assistant Section
+    # Store user message for RAG Assistant
+    if app_mode == "🤖 AI Knowledge Assistant":
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+    # 📝 1. AI Knowledge Assistant Section (CORE RAG)
     if app_mode in ["🌐 Unified AI Search Dashboard", "🤖 AI Knowledge Assistant"]:
         if app_mode == "🌐 Unified AI Search Dashboard": st.subheader("🤖 AI Knowledge Assistant")
-        with st.spinner("Searching Knowledge Base..."):
+        
+        with st.spinner("🧠 RAG Pipeline: Retrieving Context from Endee..."):
             try:
                 kb_index = client.get_index(name=INDEX_NAME)
                 query_vec = model.encode([prompt])[0].tolist()
@@ -228,32 +245,70 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
             except: kb_results = []
 
         if kb_results:
-            contexts = [m.get("meta", {}).get("text", "") for m in kb_results]
+            # Context Extraction & Citation Prep
+            contexts = []
+            sources = set()
+            for m in kb_results:
+                meta = m.get("meta", {})
+                txt = meta.get("text", "")
+                src = meta.get("source", "Unknown")
+                contexts.append(f"[Source: {src}] {txt}")
+                sources.add(src)
+            
             context_block = "\n\n---\n\n".join(contexts)
+            
+            # Chat memory integration
+            chat_history_str = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-5:]])
+            
+            llm_prompt = f"""
+            You are a helpful AI Assistant. Answer the user's question using ONLY the provided context from the Endee Vector Database.
+            If the answer isn't in the context, say you don't know based on the documents.
+            Always cite the source files at the end of your answer.
+
+            --- CONTEXT ---
+            {context_block}
+
+            --- RECENT CHAT HISTORY ---
+            {chat_history_str}
+
+            Question: {prompt}
+            Answer:
+            """
             
             gemini_key = os.environ.get("GEMINI_API_KEY")
             response_text = None
-            llm_prompt = f"Answer based on context: {context_block}\nQuestion: {prompt}"
+            
             if gemini_key:
                 try:
                     from google import genai
                     gen_client = genai.Client(api_key=gemini_key)
-                    # Use gemini-3-flash-preview as requested by user
+                    resp = gen_client.models.generate_content(model="gemini-3-flash-preview", contents=llm_prompt)
+                    response_text = resp.text
+                except:
                     try:
-                        resp = gen_client.models.generate_content(model="gemini-3-flash-preview", contents=llm_prompt)
+                        resp = gen_client.models.generate_content(model="gemini-2.0-flash", contents=llm_prompt)
                         response_text = resp.text
-                    except:
-                        try:
-                            resp = gen_client.models.generate_content(model="gemini-2.0-flash", contents=llm_prompt)
-                            response_text = resp.text
-                        except: pass
-                except: pass
+                    except: pass
             
             if not response_text:
-                response_text = "⚠️ *Quota hit. Showing raw Endee Context:*\n\n" + contexts[0][:500] + "..."
-            st.info(response_text)
+                response_text = "⚠️ *LLM Quota Exceeded. Falling back to Top Semantic Match:* \n\n" + kb_results[0].get('meta', {}).get('text', '')
+
+            # Outcome Rendering
+            if app_mode == "🤖 AI Knowledge Assistant":
+                with st.chat_message("assistant"):
+                    st.markdown(response_text)
+                st.session_state.messages.append({"role": "assistant", "content": response_text})
+            else:
+                st.info(response_text)
+                with st.expander("📚 View Retrieved Chunks (Sources)"):
+                    for src in sources: st.caption(f"📍 Reference: {src}")
+                    for m in kb_results: st.write(m.get('meta', {}).get('text'))
         else:
-            st.caption("No knowledge base results found.")
+            if app_mode == "🤖 AI Knowledge Assistant":
+                with st.chat_message("assistant"):
+                    st.write("I searched my memory but found no relevant documents to answer that.")
+            else:
+                st.caption("No knowledge base results found.")
 
     if app_mode == "🌐 Unified AI Search Dashboard": st.divider()
 
@@ -267,14 +322,11 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
                 try:
                     rec_i = client.get_index(name="endee_recommendations_ui")
                     unfiltered_results = rec_i.query(vector=model.encode([prompt])[0].tolist(), top_k=2 if app_mode == "🌐 Unified AI Search Dashboard" else 4)
-                    
-                    # Filter by threshold
                     rec_results = [r for r in unfiltered_results if r.get('distance', 1.0) <= SIMILARITY_THRESHOLD]
                     
                     if not rec_results: 
                         st.warning("🔍 I have no such type exist in my database (Product)")
                     else:
-                        # Responsive grid for recommendations
                         cols = st.columns(2) if app_mode != "🌐 Unified AI Search Dashboard" else [st.container()]
                         for i, m in enumerate(rec_results):
                             meta = m.get('meta', {})
@@ -282,6 +334,7 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
                                 st.success(f"**{meta.get('category')}**\n\n{meta.get('desc')}")
                 except:
                     st.caption("No recommendations found. Use Sidebar to seed catalog.")
+
 
 
 
