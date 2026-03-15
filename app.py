@@ -107,7 +107,10 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
                     "vector": vec.tolist(),
                     "meta": {"text": chunk, "source": uploaded.name, "type": "text"},
                 })
-            index.upsert(payloads)
+            if payloads:
+                index.upsert(payloads)
+            else:
+                st.sidebar.warning(f"No text extracted from {uploaded.name}. Skipping.")
 
         os.unlink(tmp_path)
         progress.progress((fi + 1) / len(uploaded_files), text=f"Processed {uploaded.name}")
