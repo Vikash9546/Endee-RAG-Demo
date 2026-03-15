@@ -64,7 +64,7 @@ def extract_text(filepath, filename):
             return f.read()
 
 def vision_ocr_pdf(filepath):
-    """Uses Gemini Vision to read handwritten notes from a PDF using parallel processing for speed."""
+    """Uses Gemini Vision to read handwritten notes with model fallback for robustness."""
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if not gemini_key:
         return ""
@@ -79,22 +79,26 @@ def vision_ocr_pdf(filepath):
     
     def process_page(page_num):
         page = doc[page_num]
-        # Optimized resolution (1.5x is usually enough for Gemini)
         pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
         img_data = pix.tobytes("png")
         img = PIL.Image.open(io.BytesIO(img_data))
         
-        try:
-            prompt = "Extract all text from this handwritten note. Return ONLY raw text."
-            response = gen_client.models.generate_content(
-                model="gemini-3-flash-preview",
-                contents=[prompt, img]
-            )
-            return response.text
-        except:
-            return ""
+        # Try preferred model first, then fallback
+        models_to_try = ["gemini-3-flash-preview", "gemini-2.0-flash"]
+        for model_name in models_to_try:
+            try:
+                prompt = "Extract all text from this handwritten note. Return ONLY raw text."
+                response = gen_client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt, img]
+                )
+                if response.text:
+                    return response.text
+            except Exception as e:
+                print(f"Vision OCR Error with {model_name}: {e}")
+                continue
+        return ""
 
-    # Process pages in parallel
     with ThreadPoolExecutor(max_workers=4) as executor:
         results = list(executor.map(process_page, range(len(doc))))
             
