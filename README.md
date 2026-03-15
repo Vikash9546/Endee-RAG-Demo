@@ -112,6 +112,19 @@ This script:
 
 ---
 
+### Option 5: Multi-Modal (Image + Text) Search
+A system that replicates Pinterest visual search, allowing users to search across different data types (e.g., querying an image via text).
+```bash
+python multimodal_search.py
+```
+This script:
+1. Loads the `clip-ViT-B-32` Multi-Modal model from Sentence-Transformers which understands both Images and Text in the same vector space.
+2. Ingests raw Image files (fake catalogs of clothes, cars, pets, shoes) as vectors directly into Endee.
+3. Takes a user *TEXT* query: *"I want to buy a pair of athletic shoes for running."*
+4. Endee accurately fetches the actual visual **Image URL** of the Nike shoes because their vectors align perfectly!
+
+---
+
 ### Bonus: Interactive Chatbot UI
 ```bash
 streamlit run app.py
