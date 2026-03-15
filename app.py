@@ -284,6 +284,34 @@ elif app_mode == "2. AI Recommendations Engine":
                 with (col1 if i % 2 == 0 else col2):
                     st.info(f"**{meta.get('category', '')}**\n\n{meta.get('desc', '')}\n\n*Similarity Score: {dist:.4f}*")
 
+            # ── 5. AI Reasoning: Why these recommendations? ────────
+            st.markdown("---")
+            with st.spinner("AI is reasoning about your request..."):
+                found_items = ", ".join([m.get('meta', {}).get('desc') for m in results])
+                reasoning_prompt = (
+                    f"A user is looking for: '{user_interest}'.\n"
+                    f"I have recommended these items from our catalog: {found_items}.\n"
+                    f"Explain in 2 sentences why these items are the most relevant matches for their request, even if they aren't a direct match. "
+                    f"Be helpful and conversational."
+                )
+                
+                reasoning_text = None
+                if gemini_key:
+                    try:
+                        import google.generativeai as genai
+                        genai.configure(api_key=gemini_key)
+                        gmodel = genai.GenerativeModel("gemini-1.5-flash")
+                        resp = gmodel.generate_content(reasoning_prompt)
+                        reasoning_text = resp.text
+                    except Exception:
+                        pass
+                
+                if reasoning_text:
+                    st.markdown("##### 🤖 AI Recommendation Logic:")
+                    st.write(reasoning_text)
+                else:
+                    st.caption("AI reasoning skipped (Quota hit).")
+
 elif app_mode == "3. Multi-Modal Visual Search":
     st.title("📸 Multi-Modal Visual Search")
     st.markdown("Search across different data types! Use **Text** to find the most visually similar **Images** using CLIP and Endee.")
