@@ -108,144 +108,14 @@ if st.sidebar.button("🚀 Ingest into Endee", disabled=not uploaded_files):
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("---")
-st.sidebar.title("🛠️ Features")
-app_mode = st.sidebar.radio("Choose AI Demo:", ["1. Chatbot Knowledge Base", "2. AI Recommendations Engine", "3. Multi-Modal Visual Search"])
-st.sidebar.markdown("---")
-# ── Main Area Routing ────────────────────────────────────
-
-if app_mode == "1. Chatbot Knowledge Base":
-    st.title("⚡ Endee AI Knowledge Base")
-st.markdown("Ask questions about your uploaded documents. Endee retrieves the most relevant context, and the LLM generates an answer.")
-
-# Chat history
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Display past messages
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# Chat input
-if prompt := st.chat_input("Ask a question about your documents..."):
-    # Display user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # ── Retrieve from Endee ──────────────────────────
-    with st.chat_message("assistant"):
-        with st.spinner("Searching Endee for relevant context..."):
-            try:
-                index = client.get_index(name=INDEX_NAME)
-            except Exception:
-                st.error("Index not found. Please upload and ingest documents first using the sidebar.")
-                st.stop()
-
-            query_vec = model.encode([prompt])[0].tolist()
-
-            start_t = time.time()
-            results = index.query(vector=query_vec, top_k=3)
-            latency = (time.time() - start_t) * 1000
-
-        if not results:
-            response_text = "I couldn't find any relevant context in the knowledge base. Please upload some documents first."
-            st.markdown(response_text)
-            st.session_state.messages.append({"role": "assistant", "content": response_text})
-            st.stop()
-
-        # Show retrieved context
-        contexts = []
-        with st.expander(f"📎 Retrieved {len(results)} chunks from Endee ({latency:.1f} ms)", expanded=False):
-            for i, match in enumerate(results):
-                meta = match.get("meta", {})
-                text = meta.get("text", "")
-                source = meta.get("source", "unknown")
-                dist = match.get("distance", 0)
-                contexts.append(text)
-                st.markdown(f"**[{i+1}] {source}** — distance: `{dist:.4f}`")
-                st.text(text[:300])
-                st.divider()
-
-        # ── Generate via LLM (OpenAI → Gemini → raw fallback) ──
-        context_block = "\n\n---\n\n".join(contexts)
-        llm_prompt = (
-            f"Use the following context to answer the question: "
-            f"{context_block}. "
-            f"Question: {prompt}"
-        )
-
-        response_text = None
-        openai_key = os.environ.get("OPENAI_API_KEY")
-        gemini_key = os.environ.get("GEMINI_API_KEY")
-
-        # Try OpenAI
-        if openai_key and not response_text:
-            with st.spinner("Generating answer with OpenAI GPT-4o-mini..."):
-                try:
-                    from openai import OpenAI
-                    llm = OpenAI(api_key=openai_key)
-                    resp = llm.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "You are a helpful technical knowledge assistant. Answer strictly based on the provided context."},
-                            {"role": "user", "content": llm_prompt},
-                        ],
-                        temperature=0.4,
-                        max_tokens=600,
-                    )
-                    response_text = resp.choices[0].message.content
-                except Exception as e:
-                    st.caption(f"⚠️ OpenAI failed: {e}. Trying Gemini...")
-
-        # Try Gemini (free) — tries multiple models for quota resilience
-        if gemini_key and not response_text:
-            with st.spinner("Generating answer with Google Gemini..."):
-                try:
-                    import google.generativeai as genai
-                    import time as _time
-                    genai.configure(api_key=gemini_key)
-                    last_err = None
-                    for mname in ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]:
-                        try:
-                            gmodel = genai.GenerativeModel(mname)
-                            resp = gmodel.generate_content(llm_prompt)
-                            response_text = resp.text
-                            break
-                        except Exception as e:
-                            last_err = e
-                            _time.sleep(2)
-                            continue
-                    
-                    if not response_text and last_err:
-                        st.caption(f"⚠️ Gemini Quota Exceeded or Failed: {last_err}")
-                except Exception as e:
-                    st.caption(f"⚠️ Gemini Setup failed: {e}")
-
-        # Fallback: raw context
-        if not response_text:
-            response_text = (
-                "⚠️ *LLM Quota Exceeded (or No API key). Falling back to pure Endee Vector Search results:*\n\n"
-                "**Raw retrieved context from Endee:**\n\n"
-                + "\n\n---\n\n".join(contexts)
-            )
-
-        st.markdown(response_text)
-        st.session_state.messages.append({"role": "assistant", "content": response_text})
-
-elif app_mode == "2. AI Recommendations Engine":
-    st.title("🛍️ AI Recommendations Engine")
-    st.markdown("Endee searches for similar products based on a natural language user profile description.")
-    
+st.sidebar.title("🛠️ Project Controls")
+if st.sidebar.button("🚀 Seed All Catalogs (Recs & Visual)"):
+    # Seed Recommendations
     REC_INDEX_NAME = "endee_recommendations_ui"
-    
-    try:
-        rec_index = client.get_index(name=REC_INDEX_NAME)
-    except Exception:
-        client.create_index(name=REC_INDEX_NAME, dimension=384, space_type="cosine", precision=Precision.FLOAT32)
-        rec_index = client.get_index(name=REC_INDEX_NAME)
-        
-    PRODUCTS = [
+    try: client.create_index(name=REC_INDEX_NAME, dimension=384, space_type="cosine", precision=Precision.FLOAT32)
+    except: pass
+    rec_i = client.get_index(name=REC_INDEX_NAME)
+    RECS_CAT = [
         {"id": "p1", "desc": "Wireless Noise Cancelling Headphones, over-ear, black", "category": "Electronics"},
         {"id": "p2", "desc": "Running Shoes, lightweight, breathable mesh, blue", "category": "Footwear"},
         {"id": "p3", "desc": "Yoga Mat, non-slip, eco-friendly cork, 5mm thick", "category": "Fitness"},
@@ -259,79 +129,16 @@ elif app_mode == "2. AI Recommendations Engine":
         {"id": "p11", "desc": "Electric Gooseneck Kettle, temperature control, stainless steel", "category": "Kitchen"},
         {"id": "p12", "desc": "Scented Soy Candle, Lavender and Eucalyptus, 40-hour burn", "category": "Home Decor"}
     ]
-    
-    with st.spinner("Ensuring product catalog is loaded into Endee..."):
-        payloads = [{"id": p["id"], "vector": model.encode([p["desc"]])[0].tolist(), "meta": p} for p in PRODUCTS]
-        rec_index.upsert(payloads)
-        
-    st.markdown("##### Current Vector Product Catalog:")
-    st.table(PRODUCTS)
-    
-    user_interest = st.text_input("Describe your interests (Intent-based Semantic Search):", "I want to track my heart rate while exercising outside.")
-    
-    if st.button("Get Recommendations"):
-        with st.spinner("Finding closest vectors in Endee..."):
-            user_vec = model.encode([user_interest])[0].tolist()
-            results = rec_index.query(vector=user_vec, top_k=2)
-            
-            st.markdown("### 🎯 Top Recommendations from Endee:")
-            col1, col2 = st.columns(2)
-            
-            for i, match in enumerate(results):
-                meta = match.get('meta', {})
-                dist = match.get('distance', 0)
-                
-                with (col1 if i % 2 == 0 else col2):
-                    st.info(f"**{meta.get('category', '')}**\n\n{meta.get('desc', '')}\n\n*Similarity Score: {dist:.4f}*")
+    rec_i.upsert([{"id": p["id"], "vector": model.encode([p["desc"]])[0].tolist(), "meta": p} for p in RECS_CAT])
 
-            # ── 5. AI Reasoning: Why these recommendations? ────────
-            st.markdown("---")
-            with st.spinner("AI is reasoning about your request..."):
-                found_items = ", ".join([m.get('meta', {}).get('desc') for m in results])
-                reasoning_prompt = (
-                    f"A user is looking for: '{user_interest}'.\n"
-                    f"I have recommended these items from our catalog: {found_items}.\n"
-                    f"Explain in 2 sentences why these items are the most relevant matches for their request, even if they aren't a direct match. "
-                    f"Be helpful and conversational."
-                )
-                
-                reasoning_text = None
-                if gemini_key:
-                    try:
-                        import google.generativeai as genai
-                        genai.configure(api_key=gemini_key)
-                        gmodel = genai.GenerativeModel("gemini-1.5-flash")
-                        resp = gmodel.generate_content(reasoning_prompt)
-                        reasoning_text = resp.text
-                    except Exception:
-                        pass
-                
-                if reasoning_text:
-                    st.markdown("##### 🤖 AI Recommendation Logic:")
-                    st.write(reasoning_text)
-                else:
-                    st.caption("AI reasoning skipped (Quota hit).")
-
-elif app_mode == "3. Multi-Modal Visual Search":
-    st.title("📸 Multi-Modal Visual Search")
-    st.markdown("Search across different data types! Use **Text** to find the most visually similar **Images** using CLIP and Endee.")
-    
+    # Seed Multi-Modal
+    import requests
+    from PIL import Image
     MM_INDEX_NAME = "endee_multimodal_ui"
-    
-    # Load CLIP Model (cached)
-    @st.cache_resource
-    def load_clip():
-        return SentenceTransformer("clip-ViT-B-32")
-    
-    clip_model = load_clip()
-    
-    try:
-        mm_index = client.get_index(name=MM_INDEX_NAME)
-    except Exception:
-        client.create_index(name=MM_INDEX_NAME, dimension=512, space_type="cosine", precision=Precision.FLOAT32)
-        mm_index = client.get_index(name=MM_INDEX_NAME)
-        
-    CATALOG = [
+    try: client.create_index(name=MM_INDEX_NAME, dimension=512, space_type="cosine", precision=Precision.FLOAT32)
+    except: pass
+    mm_i = client.get_index(name=MM_INDEX_NAME)
+    VIS_CAT = [
         {"id": "img_1", "category": "Fashion", "url": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?width=300", "desc": "A white plain t-shirt"},
         {"id": "img_2", "category": "Fashion", "url": "https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?width=300", "desc": "A black plain t-shirt"},
         {"id": "img_3", "category": "Footwear", "url": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?width=300", "desc": "Red Nike running shoes"},
@@ -339,40 +146,87 @@ elif app_mode == "3. Multi-Modal Visual Search":
         {"id": "img_5", "category": "Vehicles", "url": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?width=300", "desc": "A sleek silver sports car"}
     ]
     
-    if st.button("🚀 Seed Visual Catalog into Endee"):
-        import requests
-        from io import BytesIO
-        from PIL import Image
-        
-        with st.spinner("Downloading and encoding images... (One-time setup)"):
-            payloads = []
-            for item in CATALOG:
-                try:
-                    resp = requests.get(item["url"], stream=True, timeout=10)
-                    img = Image.open(resp.raw)
-                    vec = clip_model.encode(img).tolist()
-                    payloads.append({"id": item["id"], "vector": vec, "meta": item})
-                except Exception as e:
-                    st.error(f"Failed to load {item['desc']}: {e}")
-            
-            if payloads:
-                mm_index.upsert(payloads)
-                st.success(f"Successfully ingested {len(payloads)} visual vectors!")
+    @st.cache_resource
+    def load_clip():
+        return SentenceTransformer("clip-ViT-B-32")
+    clip_m = load_clip()
 
-    visual_query = st.text_input("Describe what you are looking for visually:", "I want to buy a pair of athletic shoes for running.")
-    
-    if st.button("Search Images"):
-        with st.spinner("Crossing the modal gap (Text -> Image)..."):
-            q_vec = clip_model.encode([visual_query])[0].tolist()
-            results = mm_index.query(vector=q_vec, top_k=2)
-            
-            if results:
-                st.markdown("### 🎯 Pinterest-style Visual Matches:")
-                c1, c2 = st.columns(2)
-                for i, match in enumerate(results):
-                    m = match.get('meta', {})
-                    d = match.get('distance', 0)
-                    with (c1 if i == 0 else c2):
-                        st.image(m.get('url'), caption=f"{m.get('desc')} (Distance: {d:.4f})")
-            else:
-                st.warning("No images found. Please seed the catalog first.")
+    mm_payloads = []
+    for item in VIS_CAT:
+        try:
+            r = requests.get(item["url"], stream=True, timeout=5)
+            img = Image.open(r.raw)
+            mm_payloads.append({"id": item["id"], "vector": clip_m.encode(img).tolist(), "meta": item})
+        except: pass
+    if mm_payloads: mm_i.upsert(mm_payloads)
+    st.sidebar.success("✅ Catalogs Synchronized!")
+
+st.sidebar.markdown("---")
+# ── Main Area Routing ────────────────────────────────────
+
+st.title("🌐 Unified AI Search Dashboard")
+st.markdown("One search powered by **Endee Vector DB**. Retrieves Knowledge, Products, and Visuals simultaneously.")
+
+# Unified search input
+if prompt := st.chat_input("Ask a question, find a product, or search visually..."):
+    # ── 1. RAG Retrieve ──────────────────────────
+    st.subheader("🤖 AI Knowledge Assistant")
+    with st.spinner("Searching Knowledge Base..."):
+        try:
+            kb_index = client.get_index(name=INDEX_NAME)
+            query_vec = model.encode([prompt])[0].tolist()
+            kb_results = kb_index.query(vector=query_vec, top_k=3)
+        except: kb_results = []
+
+    if kb_results:
+        contexts = [m.get("meta", {}).get("text", "") for m in kb_results]
+        context_block = "\n\n---\n\n".join(contexts)
+        
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        response_text = None
+        if gemini_key:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=gemini_key)
+                gmodel = genai.GenerativeModel("gemini-1.5-flash")
+                resp = gmodel.generate_content(f"Answer based on context: {context_block}\nQuestion: {prompt}")
+                response_text = resp.text
+            except: pass
+        
+        if not response_text:
+            response_text = "⚠️ *Quota hit. Showing raw Endee Context:*\n\n" + contexts[0][:500] + "..."
+        st.info(response_text)
+    else:
+        st.caption("No knowledge base results found.")
+
+    st.divider()
+
+    # ── 2. Recommendation & Visual Results ────────
+    col_rec, col_vis = st.columns(2)
+
+    with col_rec:
+        st.subheader("🛍️ Product Recommendations")
+        with st.spinner("Finding similar products..."):
+            try:
+                rec_i = client.get_index(name="endee_recommendations_ui")
+                rec_results = rec_i.query(vector=model.encode([prompt])[0].tolist(), top_k=2)
+                for m in rec_results:
+                    meta = m.get('meta', {})
+                    st.success(f"**{meta.get('category')}**\n\n{meta.get('desc')}")
+            except:
+                st.caption("No recommendations found. Use Sidebar to seed catalog.")
+
+    with col_vis:
+        st.subheader("📸 Visual Search")
+        with st.spinner("Fetching visual matches..."):
+            try:
+                @st.cache_resource
+                def load_clip(): return SentenceTransformer("clip-ViT-B-32")
+                clip_m = load_clip()
+                mm_i = client.get_index(name="endee_multimodal_ui")
+                mm_results = mm_i.query(vector=clip_m.encode([prompt])[0].tolist(), top_k=1)
+                for m in mm_results:
+                    meta = m.get('meta', {})
+                    st.image(meta.get('url'), caption=meta.get('desc'))
+            except:
+                st.caption("No visual matches. Use Sidebar to seed catalog.")
