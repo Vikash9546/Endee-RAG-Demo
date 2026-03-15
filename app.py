@@ -244,71 +244,73 @@ if prompt := st.chat_input(f"Enter your query for {app_mode}..."):
                 kb_results = kb_index.query(vector=query_vec, top_k=3)
             except: kb_results = []
 
+        # Context Extraction & Citation Prep
+        contexts = []
+        sources = set()
         if kb_results:
-            # Context Extraction & Citation Prep
-            contexts = []
-            sources = set()
             for m in kb_results:
                 meta = m.get("meta", {})
                 txt = meta.get("text", "")
                 src = meta.get("source", "Unknown")
                 contexts.append(f"[Source: {src}] {txt}")
                 sources.add(src)
-            
-            context_block = "\n\n---\n\n".join(contexts)
-            
-            # Chat memory integration
-            chat_history_str = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-5:]])
-            
-            llm_prompt = f"""
-            You are a helpful AI Assistant. Answer the user's question using ONLY the provided context from the Endee Vector Database.
-            If the answer isn't in the context, say you don't know based on the documents.
-            Always cite the source files at the end of your answer.
+        
+        context_block = "\n\n---\n\n".join(contexts) if contexts else "No relevant document snippets were found for this specific query."
+        
+        # Chat memory integration
+        chat_history_str = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-5:]])
+        
+        llm_prompt = f"""
+        You are a friendly and professional AI Knowledge Assistant. 
+        
+        GUIDELINES:
+        1. If the user greets you or wants informal conversation, respond warmly.
+        2. For factual questions, prioritize the PROVIDED CONTEXT below.
+        3. If the answer is in the context, cite the source file names.
+        4. If no relevant context is provided, answer using your general knowledge but mention that you couldn't find specific details in the uploaded documents.
 
-            --- CONTEXT ---
-            {context_block}
+        --- PROVIDED CONTEXT FROM UPLOADED DOCUMENTS ---
+        {context_block}
 
-            --- RECENT CHAT HISTORY ---
-            {chat_history_str}
+        --- RECENT CONTEXT (CHAT HISTORY) ---
+        {chat_history_str}
 
-            Question: {prompt}
-            Answer:
-            """
-            
-            gemini_key = os.environ.get("GEMINI_API_KEY")
-            response_text = None
-            
-            if gemini_key:
+        User Question: {prompt}
+        Assistant Answer:
+        """
+        
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        response_text = None
+        
+        if gemini_key:
+            try:
+                from google import genai
+                gen_client = genai.Client(api_key=gemini_key)
+                resp = gen_client.models.generate_content(model="gemini-3-flash-preview", contents=llm_prompt)
+                response_text = resp.text
+            except:
                 try:
-                    from google import genai
-                    gen_client = genai.Client(api_key=gemini_key)
-                    resp = gen_client.models.generate_content(model="gemini-3-flash-preview", contents=llm_prompt)
+                    resp = gen_client.models.generate_content(model="gemini-2.0-flash", contents=llm_prompt)
                     response_text = resp.text
-                except:
-                    try:
-                        resp = gen_client.models.generate_content(model="gemini-2.0-flash", contents=llm_prompt)
-                        response_text = resp.text
-                    except: pass
-            
-            if not response_text:
-                response_text = "⚠️ *LLM Quota Exceeded. Falling back to Top Semantic Match:* \n\n" + kb_results[0].get('meta', {}).get('text', '')
-
-            # Outcome Rendering
-            if app_mode == "🤖 AI Knowledge Assistant":
-                with st.chat_message("assistant"):
-                    st.markdown(response_text)
-                st.session_state.messages.append({"role": "assistant", "content": response_text})
+                except: pass
+        
+        if not response_text:
+            if kb_results:
+                response_text = "⚠️ *LLM Quota Exceeded. Falling back to Top Matched Chunk:* \n\n" + kb_results[0].get('meta', {}).get('text', '')
             else:
-                st.info(response_text)
+                response_text = "I'm sorry, I encountered a quota issue and couldn't find any documents to help with that query."
+
+        # Outcome Rendering
+        if app_mode == "🤖 AI Knowledge Assistant":
+            with st.chat_message("assistant"):
+                st.markdown(response_text)
+            st.session_state.messages.append({"role": "assistant", "content": response_text})
+        else:
+            st.info(response_text)
+            if sources:
                 with st.expander("📚 View Retrieved Chunks (Sources)"):
                     for src in sources: st.caption(f"📍 Reference: {src}")
                     for m in kb_results: st.write(m.get('meta', {}).get('text'))
-        else:
-            if app_mode == "🤖 AI Knowledge Assistant":
-                with st.chat_message("assistant"):
-                    st.write("I searched my memory but found no relevant documents to answer that.")
-            else:
-                st.caption("No knowledge base results found.")
 
     if app_mode == "🌐 Unified AI Search Dashboard": st.divider()
 
