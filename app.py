@@ -221,7 +221,8 @@ app_mode = st.sidebar.radio("Select AI Feature:", [
     "🌐 Unified AI Search Dashboard",
     "🤖 AI Knowledge Assistant",
     "🛍️ Product Recommendations",
-    "📸 Multi-Media Model"
+    "📸 Multi-Media Model",
+    "🕵️ Agentic AI Memory"
 ])
 st.sidebar.markdown("---")
 
@@ -236,9 +237,51 @@ elif app_mode == "🤖 AI Knowledge Assistant":
 elif app_mode == "🛍️ Product Recommendations":
     st.title("🛍️ Product Recommendations")
     st.markdown("Semantic intent-based search for products in the catalog.")
-elif app_mode == "📸 Multi-Media Model":
-    st.title("📸 Multi-Media Model")
-    st.markdown("Visual search across images and videos using CLIP and Endee.")
+elif app_mode == "🕵️ Agentic AI Memory":
+    st.title("🕵️ Ghost-Protocol: Agentic AI Memory")
+    st.markdown("This mode simulates an **Autonomous Agent** that uses Endee as its Long-Term Memory to handle server incidents.")
+    
+    AGENT_INDEX = "agentic_incident_memory"
+    try: client.create_index(name=AGENT_INDEX, dimension=384, space_type="cosine", precision=Precision.FLOAT32)
+    except: pass
+    agent_i = client.get_index(name=AGENT_INDEX)
+
+    if st.button("🔧 Seed Agent Memory (One-time)"):
+        past_incidents = [
+            {"error": "Postgres Connection Refused 5432", "sol": "Restarted pg_ctl and increased max_connections.", "level": "Easy"},
+            {"error": "OOMKilled: Pod memory limit", "sol": "Memory leak detected. Requires senior SRE profile.", "level": "Hard"},
+            {"error": "AWS S3 Access Denied 403", "sol": "IAM role restored via Terraform.", "level": "Easy"}
+        ]
+        agent_i.upsert([{"id": f"inc_{i}", "vector": model.encode([p["error"]])[0].tolist(), "meta": p} for i, p in enumerate(past_incidents)])
+        st.success("Agent Memory Seeded!")
+
+    incident = st.text_input("🚨 Enter a simulated server error signature:", "Database is crashing. Connection timed out on port 5432")
+    
+    if st.button("Run Agent Loop"):
+        status_box = st.empty()
+        status_box.info("🤖 **Agent State**: Analyzing incoming alert signature...")
+        time.sleep(1)
+        
+        status_box.warning("🔍 **Step 1: Consulting Endee Memory...** (Looking for past solutions)")
+        query_vec = model.encode([incident])[0].tolist()
+        results = agent_i.query(vector=query_vec, top_k=1)
+        time.sleep(1.5)
+
+        if results and results[0].get('distance', 1.0) <= 0.45:
+            match = results[0].get('meta', {})
+            status_box.success(f"✅ **Step 2: Memory Match Found!** Similar issue found: *'{match.get('error')}'*")
+            time.sleep(1)
+            
+            st.markdown("### 🤖 Agent Decision Engine")
+            if match.get('level') == "Easy":
+                st.balloons()
+                st.success(f"**DECISION: AUTO-FIX 🛠️**\n\nI remember this! Executing known fix: `{match.get('sol')}`")
+            else:
+                st.warning(f"**DECISION: ESCALATE w/ CONTEXT ⚠️**\n\nI found a match, but the difficulty is 'Hard'. Escalating to Human SRE with past context: *{match.get('sol')}*")
+        else:
+            status_box.error("❌ **Step 2: No Memory Match Found.** This is a novel incident.")
+            st.markdown("### 🤖 Agent Decision Engine")
+            st.error("**DECISION: EMERGENCY ESCALATE ☎️**\n\nThis error signature is unknown to my internal database. Paging human on-call immediately.")
 
 
 # Unified search input
